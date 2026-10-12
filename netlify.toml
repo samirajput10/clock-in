@@ -1,0 +1,7 @@
+# Netlify configuration for Next.js / full-stack builds
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Note: Netlify does not support vercel.json cron schedules.
+# If deploying to Netlify, trigger GET /api/clock-in using GitHub Actions or external cron services.

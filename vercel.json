@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/clock-in",
+      "schedule": "0 3 * * 1-6"
+    }
+  ]
+}

@@ -20,9 +20,18 @@ export function loadStoredConfig(): AppConfig {
     const raw = localStorage.getItem('kaia_automator_config');
     if (!raw) return DEFAULT_CONFIG;
     const parsed = JSON.parse(raw);
+    let mutated = false;
     // If the user's browser cached the previous corrupted key with the typo, automatically upgrade it!
     if (parsed.supabaseAnonKey && parsed.supabaseAnonKey.includes('MjA5ODIymTG5NH0')) {
       parsed.supabaseAnonKey = DEFAULT_CONFIG.supabaseAnonKey;
+      mutated = true;
+    }
+    // If the user's browser saved a Netlify frontend URL into Supabase URL, auto-restore the real Supabase endpoint!
+    if (parsed.supabaseUrl && (parsed.supabaseUrl.includes('netlify.app') || !parsed.supabaseUrl.includes('supabase.co'))) {
+      parsed.supabaseUrl = DEFAULT_CONFIG.supabaseUrl;
+      mutated = true;
+    }
+    if (mutated) {
       localStorage.setItem('kaia_automator_config', JSON.stringify({ ...DEFAULT_CONFIG, ...parsed }));
     }
     return { ...DEFAULT_CONFIG, ...parsed };

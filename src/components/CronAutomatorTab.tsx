@@ -17,7 +17,7 @@ export function CronAutomatorTab({
 }: CronAutomatorTabProps) {
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [webhookResult, setWebhookResult] = useState<any>(null);
-  const [activeSnippetTab, setActiveSnippetTab] = useState<'vercel' | 'github' | 'curl'>('vercel');
+  const [activeSnippetTab, setActiveSnippetTab] = useState<'vercel' | 'netlify' | 'github' | 'curl'>('vercel');
   const [copiedSnippet, setCopiedSnippet] = useState(false);
 
   const testWebhookEndpoint = async () => {
@@ -43,6 +43,18 @@ export function CronAutomatorTab({
     }
   ]
 }`;
+
+  const netlifyTomlSnippet = `# netlify.toml
+# Required to prevent 404s when deploying Next.js API routes on Netlify:
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# NOTE: Netlify ignores vercel.json cron schedules!
+# Use GitHub Actions (see tab above) to trigger GET /api/clock-in daily.`;
 
   const githubActionsSnippet = `name: KAIA Daily Morning Clock-In
 
@@ -70,6 +82,8 @@ jobs:
   const currentSnippet =
     activeSnippetTab === 'vercel'
       ? vercelJsonSnippet
+      : activeSnippetTab === 'netlify'
+      ? netlifyTomlSnippet
       : activeSnippetTab === 'github'
       ? githubActionsSnippet
       : curlSnippet;
@@ -87,6 +101,36 @@ jobs:
         <p className="text-xs text-slate-400 mt-1">
           Automate daily morning attendance at 08:00:00 AM PKT (03:00 UTC) with built-in server timers, Vercel Crons, or GitHub Actions.
         </p>
+      </div>
+
+      {/* Hosting Platform Architecture Notice */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-white">
+          <span className="text-indigo-400">⚡</span>
+          <span>Deploying API Routes: Vercel vs Netlify vs Cloud Run</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-300">
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+            <div className="font-semibold text-emerald-400">Vercel (Recommended for Next.js)</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Natively compiles <code className="text-slate-200">app/api/.../route.ts</code> as serverless functions and executes <code className="text-slate-200">vercel.json</code> crons automatically. Zero configuration needed.
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+            <div className="font-semibold text-amber-400">Netlify (Requires Next.js Runtime)</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Netlify ignores <code className="text-slate-200">vercel.json</code> and strips <code className="text-slate-200">/api/*</code> on static export (returning HTML 404s). Requires <code className="text-slate-200">@netlify/plugin-nextjs</code> + GitHub Actions cron.
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+            <div className="font-semibold text-indigo-400">This AI Studio Server (Live Now)</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Already running 24/7 on Google Cloud Run with an active internal interval timer. Will clock in every workday morning without needing external deployment.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Main Status & Schedule Details */}
@@ -194,7 +238,17 @@ jobs:
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                vercel.json
+                Vercel
+              </button>
+              <button
+                onClick={() => setActiveSnippetTab('netlify')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  activeSnippetTab === 'netlify'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Netlify
               </button>
               <button
                 onClick={() => setActiveSnippetTab('github')}
@@ -214,7 +268,7 @@ jobs:
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Linux Crontab
+                Crontab
               </button>
             </div>
             <button

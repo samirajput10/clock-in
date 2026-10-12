@@ -68,15 +68,45 @@ export function SettingsTab({ config, onSaveConfig }: SettingsTabProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Supabase URL
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-slate-300">
+                  Supabase URL
+                </label>
+                {form.supabaseUrl !== DEFAULT_CONFIG.supabaseUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, supabaseUrl: DEFAULT_CONFIG.supabaseUrl })}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+                  >
+                    Reset to Default
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 value={form.supabaseUrl}
                 onChange={(e) => setForm({ ...form, supabaseUrl: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
+                className={`w-full bg-slate-950 border ${
+                  form.supabaseUrl.includes('netlify')
+                    ? 'border-amber-500 text-amber-200'
+                    : 'border-slate-700 text-white'
+                } rounded-lg px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:outline-none`}
               />
+              {form.supabaseUrl.includes('netlify') && (
+                <div className="mt-2 p-2.5 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-300 text-[11px] leading-relaxed">
+                  <div className="font-semibold mb-1 flex items-center justify-between">
+                    <span>⚠️ Netlify Frontend URL Detected</span>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, supabaseUrl: DEFAULT_CONFIG.supabaseUrl })}
+                      className="text-white bg-amber-600 hover:bg-amber-500 px-2 py-0.5 rounded text-[10px] cursor-pointer"
+                    >
+                      Use Official Supabase URL
+                    </button>
+                  </div>
+                  Netlify hosts the frontend web application, which returns an HTML 404 page for backend auth requests. The Supabase URL must point to your Supabase project: <code className="font-mono text-white">https://llvsmockvufgbqpeepbm.supabase.co</code>.
+                </div>
+              )}
             </div>
 
             <div>

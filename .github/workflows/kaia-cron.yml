@@ -1,0 +1,18 @@
+name: KAIA Daily Morning Clock-In
+
+on:
+  schedule:
+    # 03:00 UTC = 08:00 AM Pakistan Standard Time (PKT)
+    # 1-6 = Monday to Saturday (Sundays excluded)
+    - cron: '0 3 * * 1-6'
+  workflow_dispatch:
+
+jobs:
+  clock-in:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger KAIA Clock-In
+        run: |
+          curl -s -f -X GET "${{ secrets.APP_URL }}/api/clock-in" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"

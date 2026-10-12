@@ -72,6 +72,15 @@ async function safeParseJson<T = any>(response: globalThis.Response): Promise<T>
       message: 'Request completed with an empty response body',
     } as unknown as T;
   }
+  const trimmed = text.trim();
+  if (trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html') || trimmed.includes('hosted on Netlify')) {
+    if (trimmed.includes('hosted on Netlify') || response.status === 404) {
+      throw new Error(
+        `Received a Netlify HTML 404 page instead of JSON API response. This occurs when requesting a Netlify domain that has static export enabled (which strips API routes) or when the 'Supabase URL' is set to a Netlify site instead of the Supabase backend.`
+      );
+    }
+    throw new Error(`Expected JSON but received an HTML response (HTTP ${response.status}): ${text.slice(0, 160)}`);
+  }
   try {
     return JSON.parse(text) as T;
   } catch {
