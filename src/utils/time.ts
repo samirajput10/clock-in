@@ -2,7 +2,7 @@ import { AppConfig } from '../types/index.ts';
 
 export const DEFAULT_CONFIG: AppConfig = {
   supabaseUrl: 'https://llvsmockvufgbqpeepbm.supabase.co',
-  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsdnNtb2NrdnVmZ2JxcGVlcGJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NDU4OTQsImV4cCI6MjA5ODIymTG5NH0.X0guVvHPpfLegMlT2Xu24XBZoFJEqztluUJE0b6G1gY',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsdnNtb2NrdnVmZ2JxcGVlcGJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NDU4OTQsImV4cCI6MjA5ODIyMTg5NH0.X0guVvHPpfLegMlT2Xu24XBZoFJEqztluUJE0b6G1gY',
   personId: '3a38a9c0-f965-4fde-8c10-84a07dff2901',
   kaiaEmail: '',
   kaiaPassword: '',
@@ -19,7 +19,13 @@ export function loadStoredConfig(): AppConfig {
   try {
     const raw = localStorage.getItem('kaia_automator_config');
     if (!raw) return DEFAULT_CONFIG;
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    // If the user's browser cached the previous corrupted key with the typo, automatically upgrade it!
+    if (parsed.supabaseAnonKey && parsed.supabaseAnonKey.includes('MjA5ODIymTG5NH0')) {
+      parsed.supabaseAnonKey = DEFAULT_CONFIG.supabaseAnonKey;
+      localStorage.setItem('kaia_automator_config', JSON.stringify({ ...DEFAULT_CONFIG, ...parsed }));
+    }
+    return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
     return DEFAULT_CONFIG;
   }
