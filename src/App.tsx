@@ -15,6 +15,7 @@ import { UpdatesTab } from './components/UpdatesTab.tsx';
 import { LogModal } from './components/LogModal.tsx';
 import { AppConfig, CronStatus, ExecutionLog } from './types/index.ts';
 import { getPKTDate, loadStoredConfig, pktToUtcIso, saveStoredConfig } from './utils/time.ts';
+import { safeParseJson } from './utils/safeJson.ts';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -29,7 +30,7 @@ export default function App() {
     try {
       const res = await fetch('/api/logs');
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeParseJson(res);
         setLogs(data.logs || []);
       }
     } catch (e) {
@@ -41,7 +42,7 @@ export default function App() {
     try {
       const res = await fetch('/api/cron-config');
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeParseJson(res);
         setCronStatus(data);
       }
     } catch (e) {
@@ -67,7 +68,7 @@ export default function App() {
     try {
       const res = await fetch('/api/cron-toggle', { method: 'POST' });
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeParseJson(res);
         if (cronStatus) {
           setCronStatus({ ...cronStatus, schedulerActive: data.schedulerActive });
         }
@@ -141,7 +142,7 @@ export default function App() {
         }),
       });
 
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok || !data.success) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }

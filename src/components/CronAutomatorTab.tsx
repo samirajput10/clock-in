@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AppConfig, CronStatus } from '../types/index.ts';
+import { safeParseJson } from '../utils/safeJson.ts';
 
 interface CronAutomatorTabProps {
   config: AppConfig;
@@ -24,7 +25,7 @@ export function CronAutomatorTab({
     setWebhookResult(null);
     try {
       const res = await fetch(`/api/clock-in?secret=${encodeURIComponent(config.cronSecret)}`);
-      const data = await res.json();
+      const data = await safeParseJson(res);
       setWebhookResult(data);
       onRefreshCronStatus();
     } catch (err: any) {

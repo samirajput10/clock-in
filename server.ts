@@ -63,6 +63,22 @@ function requireUpdatesAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
+async function safeParseJson<T = any>(response: globalThis.Response): Promise<T> {
+  const text = await response.text();
+  if (!text || text.trim().length === 0) {
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      message: 'Request completed with an empty response body',
+    } as unknown as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid JSON (HTTP ${response.status}): ${text.slice(0, 200)}`);
+  }
+}
+
 
 interface AttendanceRecord {
   id: string;
@@ -130,7 +146,10 @@ async function getFreshAccessToken(
     throw new Error(`Supabase Auth Failed (${authRes.status}): ${errText}`);
   }
 
-  const authData = (await authRes.json()) as { access_token: string };
+  const authData = (await safeParseJson(authRes)) as { access_token?: string };
+  if (!authData?.access_token) {
+    throw new Error(`Supabase Auth Failed (${authRes.status}): No access_token returned in response`);
+  }
   return authData.access_token;
 }
 
@@ -253,12 +272,7 @@ async function pushAttendance(params: PushAttendanceParams) {
     throw new Error(`Attendance Upsert Failed (${responseStatus}): ${errorBody}`);
   }
 
-  let result: any = null;
-  try {
-    result = await response.json();
-  } catch {
-    result = { status: '201 Created / Updated' };
-  }
+  const result = await safeParseJson(response);
 
   const successLog: AttendanceRecord = {
     id: Math.random().toString(36).substring(2, 9),
@@ -423,8 +437,8 @@ async function startServer() {
         });
       }
 
-      const records = await response.json();
-      return res.json({ success: true, records });
+      const records = await safeParseJson(response);
+      return res.json({ success: true, records: Array.isArray(records) ? records : [] });
     } catch (error: any) {
       return res.status(500).json({ success: false, error: error.message });
     }
@@ -449,7 +463,7 @@ async function startServer() {
           const err = await testRes.text();
           return res.status(401).json({ success: false, error: `Token invalid or expired: ${err}` });
         }
-        const user = await testRes.json();
+        const user = await safeParseJson(testRes);
         return res.json({ success: true, method: 'bearer_token', user });
       }
 

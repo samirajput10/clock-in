@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BellRing, CalendarDays, CheckCircle2, CircleAlert, LoaderCircle, Megaphone, Plus, Trash2 } from 'lucide-react';
+import { safeParseJson } from '../utils/safeJson.ts';
 
 type UpdateCategory = 'announcement' | 'feature' | 'fix' | 'maintenance';
 
@@ -34,7 +35,7 @@ export function UpdatesTab() {
     setError('');
     try {
       const response = await fetch('/api/updates');
-      const data = await response.json();
+      const data = await safeParseJson(response);
       if (!response.ok) throw new Error(data.error || 'Could not load updates.');
       setUpdates(Array.isArray(data.updates) ? data.updates : []);
     } catch (err) {
@@ -65,7 +66,7 @@ export function UpdatesTab() {
     setPublishing(true);
     try {
       const response = await adminRequest('POST', { title: title.trim(), body: body.trim(), category });
-      const data = await response.json();
+      const data = await safeParseJson(response);
       if (!response.ok) throw new Error(data.error || 'Could not publish update.');
       setUpdates((current) => [data.update, ...current].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -87,7 +88,7 @@ export function UpdatesTab() {
     setNotice('');
     try {
       const response = await adminRequest('DELETE', { id });
-      const data = await response.json();
+      const data = await safeParseJson(response);
       if (!response.ok) throw new Error(data.error || 'Could not delete update.');
       setUpdates((current) => current.filter((item) => item.id !== id));
       setNotice('Update deleted.');

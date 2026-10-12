@@ -2,5 +2,7 @@
   "name": "KAIA Attendance Automator",
   "description": "Automated and manual attendance clock-in manager for KAIA with scheduled cron jobs, geolocation spoofing, Supabase synchronization, and live logs.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

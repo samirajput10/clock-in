@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppConfig } from '../types/index.ts';
 import { DEFAULT_CONFIG } from '../utils/time.ts';
+import { safeParseJson } from '../utils/safeJson.ts';
 
 interface SettingsTabProps {
   config: AppConfig;
@@ -29,7 +30,7 @@ export function SettingsTab({ config, onSaveConfig }: SettingsTabProps) {
           accessToken: form.manualToken,
         }),
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       setTestResult({ status: res.status, ok: res.ok, ...data });
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message });

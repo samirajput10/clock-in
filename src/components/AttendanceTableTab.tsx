@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AppConfig, SupabaseAttendanceRecord } from '../types/index.ts';
 import { formatToPKT } from '../utils/time.ts';
+import { safeParseJson } from '../utils/safeJson.ts';
 
 interface AttendanceTableTabProps {
   config: AppConfig;
@@ -27,7 +28,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
       }
 
       const res = await fetch(`/api/attendance/history?${params.toString()}`);
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
