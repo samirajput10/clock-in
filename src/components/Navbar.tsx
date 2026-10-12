@@ -1,4 +1,4 @@
-export type TabId = 'dashboard' | 'manual' | 'history' | 'cron' | 'settings';
+export type TabId = 'dashboard' | 'manual' | 'history' | 'cron' | 'settings' | 'updates';
 
 interface NavbarProps {
   activeTab: TabId;
@@ -85,6 +85,16 @@ export function Navbar({
           >
             Config & Credentials
           </button>
+          <button
+            onClick={() => onSelectTab('updates')}
+            className={`whitespace-nowrap transition-colors py-1 ${
+              activeTab === 'updates'
+                ? 'text-white border-b-2 border-indigo-500 font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Updates
+          </button>
         </nav>
 
         {/* Zone 3: 1 Primary Action */}
@@ -142,6 +152,12 @@ export function Navbar({
           className={`whitespace-nowrap ${activeTab === 'settings' ? 'text-indigo-400 font-semibold' : ''}`}
         >
           Config
+        </button>
+        <button
+          onClick={() => onSelectTab('updates')}
+          className={`whitespace-nowrap ${activeTab === 'updates' ? 'text-indigo-400 font-semibold' : ''}`}
+        >
+          Updates
         </button>
       </div>
     </header>
