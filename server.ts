@@ -1,12 +1,68 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+type UpdateCategory = 'announcement' | 'feature' | 'fix' | 'maintenance';
+interface AppUpdate {
+  id: string;
+  title: string;
+  body: string;
+  category: UpdateCategory;
+  createdAt: string;
+}
+
+const updatesDirectory = path.resolve(__dirname, 'data');
+const updatesFilePath = path.join(updatesDirectory, 'updates.json');
+
+async function readUpdates(): Promise<AppUpdate[]> {
+  try {
+    const content = await readFile(updatesFilePath, 'utf8');
+    const updates = JSON.parse(content);
+    return Array.isArray(updates) ? updates : [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+async function writeUpdates(updates: AppUpdate[]): Promise<void> {
+  await mkdir(updatesDirectory, { recursive: true });
+  const temporaryPath = `${updatesFilePath}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, JSON.stringify(updates, null, 2), 'utf8');
+  await rename(temporaryPath, updatesFilePath);
+}
+
+function isValidAdminPassword(provided: string | undefined): boolean {
+  const expected = process.env.UPDATE_ADMIN_PASSWORD;
+  if (!expected || !provided) return false;
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  return expectedBuffer.length === providedBuffer.length &&
+    timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function requireUpdatesAdmin(req: Request, res: Response): boolean {
+  if (!process.env.UPDATE_ADMIN_PASSWORD) {
+    res.status(503).json({ error: 'Updates administration is not configured. Set UPDATE_ADMIN_PASSWORD on the server.' });
+    return false;
+  }
+  const authorization = req.headers.authorization || '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!isValidAdminPassword(token)) {
+    res.status(401).json({ error: 'Invalid admin password.' });
+    return false;
+  }
+  return true;
+}
+
 
 interface AttendanceRecord {
   id: string;
@@ -405,6 +461,74 @@ async function startServer() {
       });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Public read endpoint for product updates.
+  app.get('/api/updates', async (_req: Request, res: Response) => {
+    try {
+      const updates = await readUpdates();
+      updates.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return res.json({ success: true, updates });
+    } catch (error) {
+      console.error('[Updates] Failed to read updates:', error);
+      return res.status(500).json({ error: 'Unable to load updates.' });
+    }
+  });
+
+  // Admin-only endpoint to publish an update.
+  app.post('/api/updates', async (req: Request, res: Response) => {
+    if (!requireUpdatesAdmin(req, res)) return;
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+    const category = req.body?.category;
+    const validCategories: UpdateCategory[] = ['announcement', 'feature', 'fix', 'maintenance'];
+
+    if (!title || title.length > 120) {
+      return res.status(400).json({ error: 'Title is required and must be 120 characters or fewer.' });
+    }
+    if (!body || body.length > 5000) {
+      return res.status(400).json({ error: 'Details are required and must be 5,000 characters or fewer.' });
+    }
+    if (!validCategories.includes(category)) {
+      return res.status(400).json({ error: 'Choose a valid update category.' });
+    }
+
+    try {
+      const updates = await readUpdates();
+      const update: AppUpdate = {
+        id: randomUUID(),
+        title,
+        body,
+        category,
+        createdAt: new Date().toISOString(),
+      };
+      updates.unshift(update);
+      await writeUpdates(updates);
+      return res.status(201).json({ success: true, update });
+    } catch (error) {
+      console.error('[Updates] Failed to publish update:', error);
+      return res.status(500).json({ error: 'Unable to publish update.' });
+    }
+  });
+
+  // Admin-only endpoint to delete an update.
+  app.delete('/api/updates', async (req: Request, res: Response) => {
+    if (!requireUpdatesAdmin(req, res)) return;
+    const id = typeof req.body?.id === 'string' ? req.body.id : '';
+    if (!id) return res.status(400).json({ error: 'Update ID is required.' });
+
+    try {
+      const updates = await readUpdates();
+      const remaining = updates.filter((update) => update.id !== id);
+      if (remaining.length === updates.length) {
+        return res.status(404).json({ error: 'Update not found.' });
+      }
+      await writeUpdates(remaining);
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[Updates] Failed to delete update:', error);
+      return res.status(500).json({ error: 'Unable to delete update.' });
     }
   });
 
