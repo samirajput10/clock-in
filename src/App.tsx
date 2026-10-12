@@ -11,6 +11,7 @@ import { ManualDispatchTab } from './components/ManualDispatchTab.tsx';
 import { AttendanceTableTab } from './components/AttendanceTableTab.tsx';
 import { CronAutomatorTab } from './components/CronAutomatorTab.tsx';
 import { SettingsTab } from './components/SettingsTab.tsx';
+import { UpdatesTab } from './components/UpdatesTab.tsx';
 import { LogModal } from './components/LogModal.tsx';
 import { AppConfig, CronStatus, ExecutionLog } from './types/index.ts';
 import { getPKTDate, loadStoredConfig, pktToUtcIso, saveStoredConfig } from './utils/time.ts';
@@ -224,6 +225,8 @@ export default function App() {
             onSaveConfig={handleSaveConfig}
           />
         )}
+
+        {activeTab === 'updates' && <UpdatesTab />}
       </main>
 
       {/* Telemetry Log Modal */}
