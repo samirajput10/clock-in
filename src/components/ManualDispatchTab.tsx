@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { AppConfig, AttendancePayload } from '../types/index.ts';
-import { pktToUtcIso } from '../utils/time.ts';
+import { AppConfig } from '../types/index.ts';
+import { getPKTDate, pktToUtcIso } from '../utils/time.ts';
 
 interface ManualDispatchTabProps {
   config: AppConfig;
@@ -14,18 +14,21 @@ interface ManualDispatchTabProps {
     lng: number;
     distanceM: number;
     late: boolean;
+    targetAccountId?: string;
   }) => Promise<any>;
 }
 
 export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps) {
-  const [workDate, setWorkDate] = useState('2026-10-12');
+  const todayPkt = getPKTDate();
+  const [workDate, setWorkDate] = useState(todayPkt.dateString);
   const [pktTime, setPktTime] = useState('08:00:08');
+  const [targetAccountId, setTargetAccountId] = useState<string>('all');
   const [lat, setLat] = useState(config.lat);
   const [lng, setLng] = useState(config.lng);
   const [distanceM, setDistanceM] = useState(config.distanceM);
   const [late, setLate] = useState(false);
-  const [addJitter, setAddJitter] = useState(false);
-  const [manualToken, setManualToken] = useState(config.manualToken || '');
+  const [addJitter, setAddJitter] = useState(true);
+  const [manualToken, setManualToken] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [responseLog, setResponseLog] = useState<string>('');
 
@@ -37,16 +40,24 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
     previewIsoUTC = 'Invalid date/time';
   }
 
-  const payloadPreview: AttendancePayload = {
-    person_id: config.personId,
-    work_date: workDate,
-    clock_in_at: previewIsoUTC,
-    clock_in_distance_m: Number(distanceM),
-    clock_in_lat: Number(lat),
-    clock_in_lng: Number(lng),
-    late,
-    updated_at: previewIsoUTC,
-  };
+  const targetAccounts =
+    targetAccountId === 'all'
+      ? config.accounts.filter((a) => a.enabled)
+      : config.accounts.filter((a) => a.id === targetAccountId);
+
+  const payloadPreview = targetAccounts.map((acc) => ({
+    account: acc.label,
+    payload: {
+      person_id: acc.personId || '(auto-detected-from-login)',
+      work_date: workDate,
+      clock_in_at: previewIsoUTC,
+      clock_in_distance_m: Number(distanceM),
+      clock_in_lat: Number(lat),
+      clock_in_lng: Number(lng),
+      late,
+      updated_at: previewIsoUTC,
+    },
+  }));
 
   const handleApplyPreset = (name: string) => {
     if (name === 'lahore-default') {
@@ -78,6 +89,7 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
         lng: Number(lng),
         distanceM: Number(distanceM),
         late,
+        targetAccountId: targetAccountId === 'all' ? undefined : targetAccountId,
       });
       setResponseLog(JSON.stringify(result, null, 2));
     } catch (err: any) {
@@ -90,18 +102,38 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-bold text-white">Manual Dispatch & Backfill Studio</h2>
+        <h2 className="text-xl font-bold text-white">Manual Dispatch &amp; Backfill Studio</h2>
         <p className="text-xs text-slate-400 mt-1">
-          Craft custom clock-in attendance payloads for any specific date, customize coordinates, or fix a past attendance record via Supabase upsert.
+          Craft custom clock-in attendance payloads for any specific date across all enabled accounts or a single selected account.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Form Controls (7 cols) */}
         <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider text-slate-400">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
             Attendance Parameters
           </h3>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Target Account(s)
+            </label>
+            <select
+              value={targetAccountId}
+              onChange={(e) => setTargetAccountId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option value="all">
+                All Enabled Accounts ({config.accounts.filter((a) => a.enabled).length} accounts)
+              </option>
+              {config.accounts.map((acc, idx) => (
+                <option key={acc.id} value={acc.id}>
+                  Only {acc.label || `Account ${idx + 1}`} ({acc.kaiaEmail || 'No email set'})
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -140,7 +172,7 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-slate-300">
-                Geolocation & Distance
+                Geolocation &amp; Distance
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-slate-400">Presets:</span>
@@ -198,21 +230,20 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
 
           {/* Token Override & Late Status */}
           <div className="space-y-4 pt-2">
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Optional Override Bearer Token (JWT)
-              </label>
-              <input
-                type="password"
-                placeholder="Paste Supabase JWT access token or leave blank to auto-authenticate"
-                value={manualToken}
-                onChange={(e) => setManualToken(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
-              />
-              <span className="text-[11px] text-slate-400 mt-1 block">
-                If provided, bypasses email/password login and directly uses this token.
-              </span>
-            </div>
+            {targetAccountId !== 'all' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Optional One-Time Override Bearer Token (JWT)
+                </label>
+                <input
+                  type="password"
+                  placeholder="Paste Supabase JWT access token or leave blank to use account credentials"
+                  value={manualToken}
+                  onChange={(e) => setManualToken(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            )}
 
             <div className="flex items-center gap-6">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -232,7 +263,7 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
                   onChange={(e) => setAddJitter(e.target.checked)}
                   className="rounded border-slate-700 text-indigo-600 focus:ring-0"
                 />
-                <span className="text-xs text-slate-300">Add Random Seconds Jitter</span>
+                <span className="text-xs text-slate-300">Add Independent Jitter Per Account</span>
               </label>
             </div>
           </div>
@@ -244,7 +275,11 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
               disabled={isSubmitting}
               className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-all cursor-pointer"
             >
-              {isSubmitting ? 'Upserting Record...' : 'Upsert Attendance to Supabase'}
+              {isSubmitting
+                ? 'Upserting Record(s)...'
+                : targetAccountId === 'all'
+                ? `Upsert All Enabled (${targetAccounts.length})`
+                : 'Upsert Selected Account'}
             </button>
 
             <button
@@ -261,8 +296,8 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider text-slate-400">
-                Pre-Flight Payload Preview
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                Pre-Flight Payload Preview ({payloadPreview.length})
               </h3>
               <button
                 onClick={() => navigator.clipboard.writeText(JSON.stringify(payloadPreview, null, 2))}
@@ -278,7 +313,7 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider text-slate-400">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
                 Response Console
               </h3>
               {responseLog && (
@@ -296,7 +331,7 @@ export function ManualDispatchTab({ config, onDispatch }: ManualDispatchTabProps
               </pre>
             ) : (
               <div className="text-center py-8 text-xs text-slate-400">
-                Click &quot;Upsert Attendance&quot; or &quot;Dry Run&quot; to inspect the server response.
+                Click &quot;Upsert&quot; or &quot;Dry Run&quot; to inspect the server response.
               </div>
             )}
           </div>

@@ -1,8 +1,36 @@
-import { AppConfig } from '../types/index.ts';
+import { AppConfig, KaiaAccount } from '../types/index.ts';
+
+export const DEFAULT_ACCOUNTS: KaiaAccount[] = [
+  {
+    id: 'acc-1',
+    label: 'Account 1 (Primary)',
+    enabled: true,
+    personId: '3a38a9c0-f965-4fde-8c10-84a07dff2901',
+    kaiaEmail: '',
+    kaiaPassword: '',
+    manualToken: '',
+    lat: 31.45037392501653,
+    lng: 74.34174281647009,
+    distanceM: 7637,
+  },
+  {
+    id: 'acc-2',
+    label: 'Account 2',
+    enabled: true,
+    personId: '',
+    kaiaEmail: '',
+    kaiaPassword: '',
+    manualToken: '',
+    lat: 31.45037392501653,
+    lng: 74.34174281647009,
+    distanceM: 7637,
+  },
+];
 
 export const DEFAULT_CONFIG: AppConfig = {
   supabaseUrl: 'https://llvsmockvufgbqpeepbm.supabase.co',
   supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsdnNtb2NrdnVmZ2JxcGVlcGJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NDU4OTQsImV4cCI6MjA5ODIyMTg5NH0.X0guVvHPpfLegMlT2Xu24XBZoFJEqztluUJE0b6G1gY',
+  accounts: DEFAULT_ACCOUNTS,
   personId: '3a38a9c0-f965-4fde-8c10-84a07dff2901',
   kaiaEmail: '',
   kaiaPassword: '',
@@ -14,6 +42,21 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoJitter: true,
   simulateMode: false,
 };
+
+export function createEmptyAccount(index: number, defaults?: { lat: number; lng: number; distanceM: number }): KaiaAccount {
+  return {
+    id: `acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    label: `Account ${index}`,
+    enabled: true,
+    personId: '',
+    kaiaEmail: '',
+    kaiaPassword: '',
+    manualToken: '',
+    lat: defaults?.lat ?? 31.45037392501653,
+    lng: defaults?.lng ?? 74.34174281647009,
+    distanceM: defaults?.distanceM ?? 7637,
+  };
+}
 
 export function loadStoredConfig(): AppConfig {
   try {
@@ -31,6 +74,36 @@ export function loadStoredConfig(): AppConfig {
       parsed.supabaseUrl = DEFAULT_CONFIG.supabaseUrl;
       mutated = true;
     }
+    // Migrate legacy single-account config into accounts array if not present
+    if (!Array.isArray(parsed.accounts) || parsed.accounts.length === 0) {
+      parsed.accounts = [
+        {
+          id: 'acc-1',
+          label: 'Account 1 (Primary)',
+          enabled: true,
+          personId: parsed.personId || DEFAULT_CONFIG.personId,
+          kaiaEmail: parsed.kaiaEmail || '',
+          kaiaPassword: parsed.kaiaPassword || '',
+          manualToken: parsed.manualToken || '',
+          lat: Number(parsed.lat ?? DEFAULT_CONFIG.lat),
+          lng: Number(parsed.lng ?? DEFAULT_CONFIG.lng),
+          distanceM: Number(parsed.distanceM ?? DEFAULT_CONFIG.distanceM),
+        },
+        {
+          id: 'acc-2',
+          label: 'Account 2',
+          enabled: true,
+          personId: '',
+          kaiaEmail: '',
+          kaiaPassword: '',
+          manualToken: '',
+          lat: Number(parsed.lat ?? DEFAULT_CONFIG.lat),
+          lng: Number(parsed.lng ?? DEFAULT_CONFIG.lng),
+          distanceM: Number(parsed.distanceM ?? DEFAULT_CONFIG.distanceM),
+        },
+      ];
+      mutated = true;
+    }
     if (mutated) {
       localStorage.setItem('kaia_automator_config', JSON.stringify({ ...DEFAULT_CONFIG, ...parsed }));
     }
@@ -42,7 +115,16 @@ export function loadStoredConfig(): AppConfig {
 
 export function saveStoredConfig(config: AppConfig) {
   try {
-    localStorage.setItem('kaia_automator_config', JSON.stringify(config));
+    // Keep top-level personId/email synced with primary account for legacy consumers
+    const primary = config.accounts[0];
+    const normalized: AppConfig = {
+      ...config,
+      personId: primary?.personId || config.personId,
+      kaiaEmail: primary?.kaiaEmail || config.kaiaEmail,
+      kaiaPassword: primary?.kaiaPassword || config.kaiaPassword,
+      manualToken: primary?.manualToken || config.manualToken,
+    };
+    localStorage.setItem('kaia_automator_config', JSON.stringify(normalized));
   } catch (e) {
     console.error('Failed to save config to localStorage', e);
   }

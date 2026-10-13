@@ -7,5 +7,6 @@ coverage/
 .env*
 !.env.example
 
-# Runtime-persisted product updates
+# Runtime-persisted product updates and accounts
 /data/updates.json
+/data/accounts.json

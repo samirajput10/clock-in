@@ -5,6 +5,7 @@ interface NavbarProps {
   onSelectTab: (tab: TabId) => void;
   onQuickClockIn: () => void;
   isClockingIn: boolean;
+  enabledAccountsCount?: number;
 }
 
 export function Navbar({
@@ -12,6 +13,7 @@ export function Navbar({
   onSelectTab,
   onQuickClockIn,
   isClockingIn,
+  enabledAccountsCount = 1,
 }: NavbarProps) {
   return (
     <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
@@ -113,9 +115,11 @@ export function Navbar({
                 <span>Pushing Attendance...</span>
               </>
             ) : (
-              <>
-                <span>Clock In for Today</span>
-              </>
+              <span>
+                {enabledAccountsCount > 1
+                  ? `Clock In All (${enabledAccountsCount})`
+                  : 'Clock In for Today'}
+              </span>
             )}
           </button>
         </div>

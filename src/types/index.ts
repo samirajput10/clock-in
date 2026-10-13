@@ -9,6 +9,19 @@ export interface AttendancePayload {
   updated_at: string;
 }
 
+export interface KaiaAccount {
+  id: string;
+  label: string;
+  enabled: boolean;
+  personId: string;
+  kaiaEmail: string;
+  kaiaPassword: string;
+  manualToken: string;
+  lat: number;
+  lng: number;
+  distanceM: number;
+}
+
 export interface ExecutionLog {
   id: string;
   timestamp: string;
@@ -17,6 +30,9 @@ export interface ExecutionLog {
   workDate: string;
   clockInIsoUTC: string;
   personId: string;
+  accountId?: string;
+  accountLabel?: string;
+  accountEmail?: string;
   coordinates: {
     lat: number;
     lng: number;
@@ -45,6 +61,7 @@ export interface SupabaseAttendanceRecord {
 export interface AppConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
+  accounts: KaiaAccount[];
   personId: string;
   kaiaEmail: string;
   kaiaPassword: string;
@@ -65,6 +82,7 @@ export interface CronStatus {
   utcCurrentTime: string;
   nextRunPkt: string;
   lastScheduledWorkDate: string;
+  activeAccountsCount?: number;
   defaults: {
     personId: string;
     supabaseUrl: string;

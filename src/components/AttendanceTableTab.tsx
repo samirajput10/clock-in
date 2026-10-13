@@ -8,23 +8,33 @@ interface AttendanceTableTabProps {
 }
 
 export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(
+    config.accounts[0]?.id || 'acc-1'
+  );
   const [records, setRecords] = useState<SupabaseAttendanceRecord[]>([]);
+  const [resolvedPersonId, setResolvedPersonId] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<SupabaseAttendanceRecord | null>(null);
 
+  const activeAccount =
+    config.accounts.find((a) => a.id === selectedAccountId) || config.accounts[0];
+
   const fetchRecords = async () => {
+    if (!activeAccount) return;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({
-        personId: config.personId,
+        personId: activeAccount.personId || '',
+        email: activeAccount.kaiaEmail || '',
+        password: activeAccount.kaiaPassword || '',
         supabaseUrl: config.supabaseUrl,
         supabaseAnonKey: config.supabaseAnonKey,
       });
-      if (config.manualToken) {
-        params.set('accessToken', config.manualToken);
+      if (activeAccount.manualToken) {
+        params.set('accessToken', activeAccount.manualToken);
       }
 
       const res = await fetch(`/api/attendance/history?${params.toString()}`);
@@ -32,6 +42,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
+      setResolvedPersonId(data.personId || activeAccount.personId || '');
       setRecords(data.records || []);
     } catch (err: any) {
       setError(err.message || 'Failed to query attendance history from Supabase');
@@ -42,7 +53,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
 
   useEffect(() => {
     fetchRecords();
-  }, [config.personId]);
+  }, [selectedAccountId, activeAccount?.personId, activeAccount?.kaiaEmail]);
 
   const filteredRecords = records.filter((r) => {
     if (!searchQuery) return true;
@@ -62,7 +73,11 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
         <div>
           <h2 className="text-xl font-bold text-white">Live Supabase Attendance Table</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Directly queried records from table <code className="text-indigo-400">attendance</code> for Person ID <span className="text-white font-mono">{config.personId.substring(0, 8)}...</span>
+            Directly queried records from table <code className="text-indigo-400">attendance</code> for{' '}
+            <span className="text-white font-semibold">{activeAccount?.label}</span>
+            {resolvedPersonId ? (
+              <span className="text-slate-400 font-mono"> ({resolvedPersonId.slice(0, 8)}…)</span>
+            ) : null}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -84,6 +99,25 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
             )}
           </button>
         </div>
+      </div>
+
+      {/* Account Switcher Segmented Control */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl">
+        <span className="text-xs font-medium text-slate-400 px-2">Inspect Account:</span>
+        {config.accounts.map((acc, idx) => (
+          <button
+            key={acc.id}
+            onClick={() => setSelectedAccountId(acc.id)}
+            className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              selectedAccountId === acc.id
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            {acc.label || `Account ${idx + 1}`}
+            {acc.kaiaEmail ? ` (${acc.kaiaEmail})` : ''}
+          </button>
+        ))}
       </div>
 
       {/* Summary KPI Strip */}
@@ -139,7 +173,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
           <div className="font-semibold">Supabase Query Notice:</div>
           <p className="font-mono">{error}</p>
           <p className="text-slate-400 text-[11px] mt-2">
-            Tip: If Row Level Security (RLS) is active on the attendance table, ensure your KAIA credentials or manual JWT token are configured in the Config tab so the request carries an authenticated Bearer token.
+            Tip: Ensure KAIA login credentials or a manual JWT token are configured for {activeAccount?.label} in the Config tab.
           </p>
         </div>
       )}
@@ -160,7 +194,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
             <p className="text-xs mt-1">
               {searchQuery
                 ? 'No records matched your search query.'
-                : 'Click "Clock In for Today" or "Manual Clock-In" to create your first attendance row in Supabase.'}
+                : `No attendance records found for ${activeAccount?.label} yet.`}
             </p>
           </div>
         ) : (
@@ -224,7 +258,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="text-base font-bold text-white">
-                Attendance Record: {selectedRecord.work_date}
+                Attendance Record: {selectedRecord.work_date} ({activeAccount?.label})
               </h3>
               <button
                 onClick={() => setSelectedRecord(null)}

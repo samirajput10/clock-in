@@ -19,8 +19,22 @@ interface AppUpdate {
   createdAt: string;
 }
 
-const updatesDirectory = path.resolve(__dirname, 'data');
-const updatesFilePath = path.join(updatesDirectory, 'updates.json');
+export interface ServerKaiaAccount {
+  id: string;
+  label: string;
+  enabled: boolean;
+  personId: string;
+  kaiaEmail: string;
+  kaiaPassword: string;
+  manualToken: string;
+  lat: number;
+  lng: number;
+  distanceM: number;
+}
+
+const dataDirectory = path.resolve(__dirname, 'data');
+const updatesFilePath = path.join(dataDirectory, 'updates.json');
+const accountsFilePath = path.join(dataDirectory, 'accounts.json');
 
 async function readUpdates(): Promise<AppUpdate[]> {
   try {
@@ -34,10 +48,101 @@ async function readUpdates(): Promise<AppUpdate[]> {
 }
 
 async function writeUpdates(updates: AppUpdate[]): Promise<void> {
-  await mkdir(updatesDirectory, { recursive: true });
+  await mkdir(dataDirectory, { recursive: true });
   const temporaryPath = `${updatesFilePath}.${process.pid}.tmp`;
   await writeFile(temporaryPath, JSON.stringify(updates, null, 2), 'utf8');
   await rename(temporaryPath, updatesFilePath);
+}
+
+function getEnvAccounts(): ServerKaiaAccount[] {
+  const defaultLat = Number(process.env.CLOCK_IN_LAT || 31.45037392501653);
+  const defaultLng = Number(process.env.CLOCK_IN_LNG || 74.34174281647009);
+  const defaultDist = Number(process.env.CLOCK_IN_DISTANCE_M || 7637);
+
+  if (process.env.KAIA_ACCOUNTS_JSON) {
+    try {
+      const parsed = JSON.parse(process.env.KAIA_ACCOUNTS_JSON);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((acc, idx) => ({
+          id: acc.id || `env-acc-${idx + 1}`,
+          label: acc.label || `Account ${idx + 1}`,
+          enabled: acc.enabled ?? true,
+          personId: acc.personId || '',
+          kaiaEmail: acc.kaiaEmail || acc.email || '',
+          kaiaPassword: acc.kaiaPassword || acc.password || '',
+          manualToken: acc.manualToken || '',
+          lat: Number(acc.lat ?? defaultLat),
+          lng: Number(acc.lng ?? defaultLng),
+          distanceM: Number(acc.distanceM ?? defaultDist),
+        }));
+      }
+    } catch (e) {
+      console.error('[Accounts] Failed to parse KAIA_ACCOUNTS_JSON:', e);
+    }
+  }
+
+  const envAccounts: ServerKaiaAccount[] = [];
+  // Primary env account
+  if (process.env.KAIA_EMAIL || process.env.KAIA_PERSON_ID) {
+    envAccounts.push({
+      id: 'acc-1',
+      label: 'Account 1 (Primary)',
+      enabled: true,
+      personId: process.env.KAIA_PERSON_ID || '3a38a9c0-f965-4fde-8c10-84a07dff2901',
+      kaiaEmail: process.env.KAIA_EMAIL && process.env.KAIA_EMAIL !== 'your_email@example.com' ? process.env.KAIA_EMAIL : '',
+      kaiaPassword: process.env.KAIA_PASSWORD && process.env.KAIA_PASSWORD !== 'your_kaia_password' ? process.env.KAIA_PASSWORD : '',
+      manualToken: '',
+      lat: defaultLat,
+      lng: defaultLng,
+      distanceM: defaultDist,
+    });
+  }
+
+  // Numbered env accounts: KAIA_EMAIL_2, KAIA_EMAIL_3 ... up to 20
+  for (let i = 2; i <= 20; i++) {
+    const email = process.env[`KAIA_EMAIL_${i}`];
+    const password = process.env[`KAIA_PASSWORD_${i}`];
+    const personId = process.env[`KAIA_PERSON_ID_${i}`];
+    const token = process.env[`KAIA_TOKEN_${i}`];
+    if (email || personId || token) {
+      envAccounts.push({
+        id: `acc-${i}`,
+        label: `Account ${i}`,
+        enabled: true,
+        personId: personId || '',
+        kaiaEmail: email && !email.startsWith('your_email') ? email : '',
+        kaiaPassword: password && !password.startsWith('your_kaia_password') ? password : '',
+        manualToken: token || '',
+        lat: Number(process.env[`CLOCK_IN_LAT_${i}`] || defaultLat),
+        lng: Number(process.env[`CLOCK_IN_LNG_${i}`] || defaultLng),
+        distanceM: Number(process.env[`CLOCK_IN_DISTANCE_M_${i}`] || defaultDist),
+      });
+    }
+  }
+
+  return envAccounts;
+}
+
+async function readAccounts(): Promise<ServerKaiaAccount[]> {
+  try {
+    const content = await readFile(accountsFilePath, 'utf8');
+    const saved = JSON.parse(content);
+    if (Array.isArray(saved) && saved.length > 0) {
+      return saved;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('[Accounts] Read error:', error);
+    }
+  }
+  return getEnvAccounts();
+}
+
+async function writeAccounts(accounts: ServerKaiaAccount[]): Promise<void> {
+  await mkdir(dataDirectory, { recursive: true });
+  const temporaryPath = `${accountsFilePath}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, JSON.stringify(accounts, null, 2), 'utf8');
+  await rename(temporaryPath, accountsFilePath);
 }
 
 function isValidAdminPassword(provided: string | undefined): boolean {
@@ -88,7 +193,6 @@ async function safeParseJson<T = any>(response: globalThis.Response): Promise<T>
   }
 }
 
-
 interface AttendanceRecord {
   id: string;
   timestamp: string;
@@ -97,6 +201,9 @@ interface AttendanceRecord {
   workDate: string;
   clockInIsoUTC: string;
   personId: string;
+  accountId?: string;
+  accountLabel?: string;
+  accountEmail?: string;
   coordinates: { lat: number; lng: number; distanceM: number };
   jitterAppliedMs?: number;
   responseStatus?: number;
@@ -109,7 +216,7 @@ interface AttendanceRecord {
 const executionLogs: AttendanceRecord[] = [];
 function addLog(log: AttendanceRecord) {
   executionLogs.unshift(log);
-  if (executionLogs.length > 100) {
+  if (executionLogs.length > 150) {
     executionLogs.pop();
   }
 }
@@ -118,23 +225,23 @@ function addLog(log: AttendanceRecord) {
 let internalSchedulerActive = true;
 let lastScheduledWorkDate = '';
 
-async function getFreshAccessToken(
+async function getFreshAuth(
   supabaseUrl: string,
   anonKey: string,
   email?: string,
   password?: string,
   manualToken?: string
-): Promise<string> {
+): Promise<{ token: string; authUserId?: string; userEmail?: string }> {
   if (manualToken && manualToken.trim()) {
-    return manualToken.trim();
+    return { token: manualToken.trim() };
   }
 
-  const effectiveEmail = email || process.env.KAIA_EMAIL;
+  const effectiveEmail = email?.trim() || process.env.KAIA_EMAIL;
   const effectivePassword = password || process.env.KAIA_PASSWORD;
 
-  if (!effectiveEmail || !effectivePassword || effectiveEmail === 'your_email@example.com') {
+  if (!effectiveEmail || !effectivePassword || effectiveEmail.startsWith('your_email')) {
     throw new Error(
-      'Missing KAIA email or password. Please provide valid KAIA credentials or enter a manual Bearer token in the configuration tab.'
+      'Missing KAIA email or password for this account. Please enter valid KAIA credentials or a manual Bearer token in Config & Credentials.'
     );
   }
 
@@ -152,14 +259,96 @@ async function getFreshAccessToken(
 
   if (!authRes.ok) {
     const errText = await authRes.text();
-    throw new Error(`Supabase Auth Failed (${authRes.status}): ${errText}`);
+    throw new Error(`Supabase Auth Failed (${authRes.status}) for ${effectiveEmail}: ${errText}`);
   }
 
-  const authData = (await safeParseJson(authRes)) as { access_token?: string };
+  const authData = (await safeParseJson(authRes)) as {
+    access_token?: string;
+    user?: { id?: string; email?: string };
+  };
   if (!authData?.access_token) {
     throw new Error(`Supabase Auth Failed (${authRes.status}): No access_token returned in response`);
   }
-  return authData.access_token;
+  return {
+    token: authData.access_token,
+    authUserId: authData.user?.id,
+    userEmail: authData.user?.email || effectiveEmail,
+  };
+}
+
+/**
+ * Automatically resolves `person_id` if the user only entered Email + Password for a secondary account.
+ * Checks explicit personId -> existing attendance rows under RLS -> people/profiles table -> auth.users.id
+ */
+async function resolvePersonId(
+  supabaseUrl: string,
+  anonKey: string,
+  token: string,
+  authUserId?: string,
+  explicitPersonId?: string
+): Promise<string> {
+  if (explicitPersonId && explicitPersonId.trim()) {
+    return explicitPersonId.trim();
+  }
+
+  const headers = {
+    apikey: anonKey,
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+
+  // 1. Try discovering person_id from existing attendance records visible to this user's token
+  try {
+    const attRes = await fetch(`${supabaseUrl}/rest/v1/attendance?select=person_id&order=work_date.desc&limit=1`, {
+      headers,
+    });
+    if (attRes.ok) {
+      const rows = await safeParseJson(attRes);
+      if (Array.isArray(rows) && rows[0]?.person_id) {
+        return String(rows[0].person_id);
+      }
+    }
+  } catch {
+    // ignore and try next source
+  }
+
+  // 2. Try people / employees / profiles table
+  for (const table of ['people', 'employees', 'profiles']) {
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/${table}?select=id&limit=1`, { headers });
+      if (res.ok) {
+        const rows = await safeParseJson(res);
+        if (Array.isArray(rows) && rows[0]?.id) {
+          return String(rows[0].id);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. If token was manual and authUserId wasn't fetched yet, check /auth/v1/user
+  if (!authUserId) {
+    try {
+      const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, { headers });
+      if (userRes.ok) {
+        const userObj = await safeParseJson(userRes);
+        if (userObj?.id) {
+          return String(userObj.id);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (authUserId) {
+    return authUserId;
+  }
+
+  throw new Error(
+    'Could not auto-detect Person ID for this account. Please provide the Person ID or verify the account has an existing profile.'
+  );
 }
 
 interface PushAttendanceParams {
@@ -178,18 +367,20 @@ interface PushAttendanceParams {
   distanceM?: number;
   late?: boolean;
   mode?: 'manual' | 'auto-cron' | 'simulated';
+  accountId?: string;
+  accountLabel?: string;
 }
 
 async function pushAttendance(params: PushAttendanceParams) {
   const url = (params.supabaseUrl || process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co').replace(/\/$/, '');
   const anonKey = params.supabaseAnonKey || process.env.SUPABASE_ANON_KEY || '';
-  const personId = params.personId || process.env.KAIA_PERSON_ID || '3a38a9c0-f965-4fde-8c10-84a07dff2901';
   const lat = Number(params.lat ?? process.env.CLOCK_IN_LAT ?? 31.45037392501653);
   const lng = Number(params.lng ?? process.env.CLOCK_IN_LNG ?? 74.34174281647009);
   const distanceM = Number(params.distanceM ?? process.env.CLOCK_IN_DISTANCE_M ?? 7637);
   const isLate = params.late ?? false;
   const isSimulation = params.simulate ?? false;
   const mode = isSimulation ? 'simulated' : (params.mode || 'manual');
+  const accountLabel = params.accountLabel || params.email || 'Account';
 
   // Compute PKT (UTC+5) Date
   const now = new Date();
@@ -203,25 +394,34 @@ async function pushAttendance(params: PushAttendanceParams) {
   if (!targetIsoUTC) {
     const base8amUTC = new Date(`${targetWorkDate}T03:00:00.000Z`);
     if (params.addJitter) {
-      jitterMs = Math.floor(Math.random() * 22000) + 2000; // 2s - 24s
+      jitterMs = Math.floor(Math.random() * 22000) + 2000; // 2s - 24s independent per account
       base8amUTC.setMilliseconds(base8amUTC.getMilliseconds() + jitterMs);
     }
     targetIsoUTC = base8amUTC.toISOString();
+  } else if (params.addJitter) {
+    // Even if a base clockInIsoUTC was passed from UI, apply independent jitter per account when requested
+    const baseTime = new Date(targetIsoUTC);
+    if (!isNaN(baseTime.getTime())) {
+      jitterMs = Math.floor(Math.random() * 22000) + 2000;
+      baseTime.setMilliseconds(baseTime.getMilliseconds() + jitterMs);
+      targetIsoUTC = baseTime.toISOString();
+    }
   }
-
-  const payload = {
-    person_id: personId,
-    work_date: targetWorkDate,
-    clock_in_at: targetIsoUTC,
-    clock_in_distance_m: distanceM,
-    clock_in_lat: lat,
-    clock_in_lng: lng,
-    late: isLate,
-    updated_at: targetIsoUTC,
-  };
 
   // If simulation mode
   if (isSimulation) {
+    const simPersonId = params.personId?.trim() || 'auto-detected-on-live-run';
+    const payload = {
+      person_id: simPersonId,
+      work_date: targetWorkDate,
+      clock_in_at: targetIsoUTC,
+      clock_in_distance_m: distanceM,
+      clock_in_lat: lat,
+      clock_in_lng: lng,
+      late: isLate,
+      updated_at: targetIsoUTC,
+    };
+
     const simLog: AttendanceRecord = {
       id: Math.random().toString(36).substring(2, 9),
       timestamp: new Date().toISOString(),
@@ -229,41 +429,86 @@ async function pushAttendance(params: PushAttendanceParams) {
       status: 'success',
       workDate: targetWorkDate,
       clockInIsoUTC: targetIsoUTC,
-      personId,
+      personId: simPersonId,
+      accountId: params.accountId,
+      accountLabel,
+      accountEmail: params.email,
       coordinates: { lat, lng, distanceM },
       jitterAppliedMs: jitterMs,
       responseStatus: 200,
-      responseBody: { simulated: true, note: 'Dry run completed. No data was pushed to remote table.' },
-      message: 'Simulation successful. Valid payload generated and ready for production dispatch.',
+      responseBody: { simulated: true, account: accountLabel, note: 'Dry run completed. No data was pushed to remote table.' },
+      message: `[${accountLabel}] Simulation successful. Valid payload generated.`,
     };
     addLog(simLog);
-    return { payload, result: { simulated: true }, mode: 'simulated', log: simLog };
+    return { accountLabel, accountId: params.accountId, payload, result: { simulated: true }, mode: 'simulated', log: simLog };
   }
 
-  // Obtain token
-  const token = await getFreshAccessToken(
-    url,
-    anonKey,
-    params.email,
-    params.password,
-    params.accessToken
-  );
+  let personId = params.personId?.trim() || '';
+  try {
+    // Obtain token
+    const { token, authUserId } = await getFreshAuth(
+      url,
+      anonKey,
+      params.email,
+      params.password,
+      params.accessToken
+    );
 
-  const endpoint = `${url}/rest/v1/attendance?on_conflict=person_id%2Cwork_date`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates,return=representation',
-    },
-    body: JSON.stringify(payload),
-  });
+    // Resolve personId (explicit or auto-discovered from Supabase)
+    personId = await resolvePersonId(url, anonKey, token, authUserId, personId);
 
-  const responseStatus = response.status;
-  if (!response.ok) {
-    const errorBody = await response.text();
+    const payload = {
+      person_id: personId,
+      work_date: targetWorkDate,
+      clock_in_at: targetIsoUTC,
+      clock_in_distance_m: distanceM,
+      clock_in_lat: lat,
+      clock_in_lng: lng,
+      late: isLate,
+      updated_at: targetIsoUTC,
+    };
+
+    const endpoint = `${url}/rest/v1/attendance?on_conflict=person_id%2Cwork_date`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseStatus = response.status;
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Attendance Upsert Failed (${responseStatus}): ${errorBody}`);
+    }
+
+    const result = await safeParseJson(response);
+
+    const successLog: AttendanceRecord = {
+      id: Math.random().toString(36).substring(2, 9),
+      timestamp: new Date().toISOString(),
+      mode,
+      status: 'success',
+      workDate: targetWorkDate,
+      clockInIsoUTC: targetIsoUTC,
+      personId,
+      accountId: params.accountId,
+      accountLabel,
+      accountEmail: params.email,
+      coordinates: { lat, lng, distanceM },
+      jitterAppliedMs: jitterMs,
+      responseStatus,
+      responseBody: result,
+      message: `[${accountLabel}] Attendance record successfully upserted into KAIA Supabase attendance table.`,
+    };
+    addLog(successLog);
+
+    return { accountLabel, accountId: params.accountId, personId, payload, result, mode, log: successLog };
+  } catch (err: any) {
     const failedLog: AttendanceRecord = {
       id: Math.random().toString(36).substring(2, 9),
       timestamp: new Date().toISOString(),
@@ -271,35 +516,72 @@ async function pushAttendance(params: PushAttendanceParams) {
       status: 'failed',
       workDate: targetWorkDate,
       clockInIsoUTC: targetIsoUTC,
-      personId,
+      personId: personId || 'unknown',
+      accountId: params.accountId,
+      accountLabel,
+      accountEmail: params.email,
       coordinates: { lat, lng, distanceM },
       jitterAppliedMs: jitterMs,
-      responseStatus,
-      error: `Attendance Upsert Failed (${responseStatus}): ${errorBody}`,
+      responseStatus: 500,
+      error: `[${accountLabel}] ${err.message}`,
     };
     addLog(failedLog);
-    throw new Error(`Attendance Upsert Failed (${responseStatus}): ${errorBody}`);
+    throw err;
+  }
+}
+
+async function runScheduledMultiAccountClockIn(mode: 'auto-cron' | 'manual' = 'auto-cron') {
+  const accounts = await readAccounts();
+  const enabledAccounts = accounts.filter(
+    (a) => a.enabled && (a.kaiaEmail || a.manualToken || a.personId)
+  );
+
+  if (enabledAccounts.length === 0) {
+    // Fallback to default env push
+    const single = await pushAttendance({ addJitter: true, mode, accountLabel: 'Primary Account' });
+    return {
+      success: true,
+      mode,
+      totalAccounts: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [{ status: 'fulfilled', value: single }],
+    };
   }
 
-  const result = await safeParseJson(response);
+  const settled = await Promise.allSettled(
+    enabledAccounts.map((acc) =>
+      pushAttendance({
+        addJitter: true,
+        mode,
+        accountId: acc.id,
+        accountLabel: acc.label || acc.kaiaEmail || acc.id,
+        personId: acc.personId,
+        email: acc.kaiaEmail,
+        password: acc.kaiaPassword,
+        accessToken: acc.manualToken,
+        lat: acc.lat,
+        lng: acc.lng,
+        distanceM: acc.distanceM,
+      })
+    )
+  );
 
-  const successLog: AttendanceRecord = {
-    id: Math.random().toString(36).substring(2, 9),
-    timestamp: new Date().toISOString(),
+  const successCount = settled.filter((r) => r.status === 'fulfilled').length;
+  const failureCount = settled.length - successCount;
+
+  return {
+    success: successCount > 0,
     mode,
-    status: 'success',
-    workDate: targetWorkDate,
-    clockInIsoUTC: targetIsoUTC,
-    personId,
-    coordinates: { lat, lng, distanceM },
-    jitterAppliedMs: jitterMs,
-    responseStatus,
-    responseBody: result,
-    message: 'Attendance record successfully upserted into KAIA Supabase attendance table.',
+    totalAccounts: settled.length,
+    successCount,
+    failureCount,
+    results: settled.map((r, i) =>
+      r.status === 'fulfilled'
+        ? { account: enabledAccounts[i].label, success: true, ...r.value }
+        : { account: enabledAccounts[i].label, success: false, error: r.reason?.message || String(r.reason) }
+    ),
   };
-  addLog(successLog);
-
-  return { payload, result, mode, log: successLog };
 }
 
 // Background scheduler loop (runs every 30 seconds)
@@ -319,8 +601,8 @@ setInterval(async () => {
     if (dayOfWeek !== 0 && hours === 8 && minutes === 0) {
       if (lastScheduledWorkDate !== dateStr) {
         lastScheduledWorkDate = dateStr;
-        console.log(`[Automated Cron] Executing morning clock-in for ${dateStr} PKT...`);
-        await pushAttendance({ addJitter: true, mode: 'auto-cron' });
+        console.log(`[Automated Cron] Executing multi-account morning clock-in for ${dateStr} PKT...`);
+        await runScheduledMultiAccountClockIn('auto-cron');
       }
     }
   } catch (err: any) {
@@ -335,6 +617,30 @@ async function startServer() {
   // Health / Ping
   app.get('/api/ping', (_req: Request, res: Response) => {
     res.json({ ok: true, timestamp: new Date().toISOString() });
+  });
+
+  // GET /api/accounts: Load persisted server-side accounts
+  app.get('/api/accounts', async (_req: Request, res: Response) => {
+    try {
+      const accounts = await readAccounts();
+      res.json({ success: true, accounts });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // POST /api/accounts: Save accounts list on server for automated cron jobs
+  app.post('/api/accounts', async (req: Request, res: Response) => {
+    try {
+      const accounts = req.body?.accounts;
+      if (!Array.isArray(accounts)) {
+        return res.status(400).json({ success: false, error: 'accounts must be an array' });
+      }
+      await writeAccounts(accounts);
+      return res.json({ success: true, count: accounts.length, accounts });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // GET /api/clock-in: Cron trigger endpoint (compatible with Vercel Cron & GitHub Actions)
@@ -363,7 +669,8 @@ async function startServer() {
           status: 'skipped',
           workDate: pktNow.toISOString().split('T')[0],
           clockInIsoUTC: new Date().toISOString(),
-          personId: process.env.KAIA_PERSON_ID || '',
+          personId: 'all-accounts',
+          accountLabel: 'All Enabled Accounts',
           coordinates: {
             lat: Number(process.env.CLOCK_IN_LAT || 31.45037),
             lng: Number(process.env.CLOCK_IN_LNG || 74.34174),
@@ -375,17 +682,86 @@ async function startServer() {
         return res.json({ skipped: true, reason: 'Sunday (Non-working day)' });
       }
 
-      const data = await pushAttendance({ addJitter: true, mode: 'auto-cron' });
-      return res.json({ success: true, ...data });
+      const data = await runScheduledMultiAccountClockIn('auto-cron');
+      return res.status(data.success ? 200 : 500).json(data);
     } catch (error: any) {
       return res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // POST /api/clock-in: Manual or UI Trigger
+  // POST /api/clock-in: Manual or Multi-Account UI Trigger
   app.post('/api/clock-in', async (req: Request, res: Response) => {
     try {
       const body = req.body || {};
+
+      // Check if a batch of accounts was passed
+      if (Array.isArray(body.accounts) && body.accounts.length > 0) {
+        const targetAccounts: ServerKaiaAccount[] = body.accounts;
+        // Also persist to server if requested
+        if (body.persistAccounts) {
+          await writeAccounts(targetAccounts).catch(() => {});
+        }
+
+        const settled = await Promise.allSettled(
+          targetAccounts.map((acc) =>
+            pushAttendance({
+              workDate: body.workDate,
+              clockInIsoUTC: body.clockInIsoUTC,
+              addJitter: body.addJitter ?? false,
+              simulate: body.simulate ?? false,
+              supabaseUrl: body.supabaseUrl,
+              supabaseAnonKey: body.supabaseAnonKey,
+              accountId: acc.id,
+              accountLabel: acc.label || acc.kaiaEmail || acc.id,
+              personId: acc.personId,
+              email: acc.kaiaEmail,
+              password: acc.kaiaPassword,
+              accessToken: acc.manualToken,
+              lat: acc.lat ?? body.lat,
+              lng: acc.lng ?? body.lng,
+              distanceM: acc.distanceM ?? body.distanceM,
+              late: body.late,
+              mode: 'manual',
+            })
+          )
+        );
+
+        const results = settled.map((r, idx) =>
+          r.status === 'fulfilled'
+            ? { account: targetAccounts[idx].label, success: true, ...r.value }
+            : {
+                account: targetAccounts[idx].label,
+                success: false,
+                error: r.reason?.message || String(r.reason),
+              }
+        );
+
+        const successCount = results.filter((r) => r.success).length;
+        const failureCount = results.length - successCount;
+
+        if (successCount === 0) {
+          const firstErrors = results.map((r) => `${r.account}: ${(r as any).error}`).join(' | ');
+          return res.status(500).json({
+            success: false,
+            error: firstErrors || 'All accounts failed to clock in',
+            totalAccounts: results.length,
+            successCount,
+            failureCount,
+            results,
+          });
+        }
+
+        return res.json({
+          success: true,
+          mode: body.simulate ? 'simulated' : 'manual',
+          totalAccounts: results.length,
+          successCount,
+          failureCount,
+          results,
+        });
+      }
+
+      // Single account execution
       const data = await pushAttendance({
         workDate: body.workDate,
         clockInIsoUTC: body.clockInIsoUTC,
@@ -401,6 +777,8 @@ async function startServer() {
         lng: body.lng,
         distanceM: body.distanceM,
         late: body.late,
+        accountId: body.accountId,
+        accountLabel: body.accountLabel,
         mode: 'manual',
       });
       return res.json({ success: true, ...data });
@@ -414,18 +792,33 @@ async function startServer() {
     try {
       const url = ((req.query.supabaseUrl as string) || process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co').replace(/\/$/, '');
       const anonKey = (req.query.supabaseAnonKey as string) || process.env.SUPABASE_ANON_KEY || '';
-      const personId = (req.query.personId as string) || process.env.KAIA_PERSON_ID || '3a38a9c0-f965-4fde-8c10-84a07dff2901';
+      const rawPersonId = (req.query.personId as string) || '';
+      const email = (req.query.email as string) || '';
+      const password = (req.query.password as string) || '';
       const manualToken = (req.headers['authorization']?.replace('Bearer ', '') || (req.query.accessToken as string))?.trim();
 
-      // Retrieve access token
       let token = manualToken;
+      let authUserId: string | undefined;
       if (!token) {
         try {
-          token = await getFreshAccessToken(url, anonKey);
+          const auth = await getFreshAuth(url, anonKey, email || undefined, password || undefined);
+          token = auth.token;
+          authUserId = auth.authUserId;
         } catch {
-          // Fall back to querying with anonKey
           token = anonKey;
         }
+      }
+
+      let personId = rawPersonId.trim();
+      if (!personId && token && token !== anonKey) {
+        try {
+          personId = await resolvePersonId(url, anonKey, token, authUserId);
+        } catch {
+          // fallback
+        }
+      }
+      if (!personId) {
+        personId = process.env.KAIA_PERSON_ID || '3a38a9c0-f965-4fde-8c10-84a07dff2901';
       }
 
       const queryUrl = `${url}/rest/v1/attendance?person_id=eq.${encodeURIComponent(personId)}&order=work_date.desc&limit=30`;
@@ -447,21 +840,20 @@ async function startServer() {
       }
 
       const records = await safeParseJson(response);
-      return res.json({ success: true, records: Array.isArray(records) ? records : [] });
+      return res.json({ success: true, personId, records: Array.isArray(records) ? records : [] });
     } catch (error: any) {
       return res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // POST /api/test-auth: Test user credentials or custom Bearer token
+  // POST /api/test-auth: Test user credentials or custom Bearer token & auto-detect Person ID
   app.post('/api/test-auth', async (req: Request, res: Response) => {
     try {
-      const { supabaseUrl, supabaseAnonKey, email, password, accessToken } = req.body;
+      const { supabaseUrl, supabaseAnonKey, email, password, accessToken, personId } = req.body;
       const url = (supabaseUrl || process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co').replace(/\/$/, '');
       const anonKey = supabaseAnonKey || process.env.SUPABASE_ANON_KEY || '';
 
       if (accessToken && accessToken.trim()) {
-        // Test token validity with user profile endpoint
         const testRes = await fetch(`${url}/auth/v1/user`, {
           headers: {
             apikey: anonKey,
@@ -473,13 +865,26 @@ async function startServer() {
           return res.status(401).json({ success: false, error: `Token invalid or expired: ${err}` });
         }
         const user = await safeParseJson(testRes);
-        return res.json({ success: true, method: 'bearer_token', user });
+        const detectedPersonId = await resolvePersonId(url, anonKey, accessToken.trim(), user?.id, personId).catch(() => user?.id || '');
+        return res.json({
+          success: true,
+          method: 'bearer_token',
+          detectedPersonId,
+          userEmail: user?.email,
+          user,
+        });
       }
 
-      const freshToken = await getFreshAccessToken(url, anonKey, email, password);
+      const { token: freshToken, authUserId, userEmail } = await getFreshAuth(url, anonKey, email, password);
+      const detectedPersonId = await resolvePersonId(url, anonKey, freshToken, authUserId, personId).catch(
+        () => authUserId || ''
+      );
+
       return res.json({
         success: true,
         method: 'password_auth',
+        userEmail,
+        detectedPersonId,
         tokenPreview: `${freshToken.substring(0, 15)}...${freshToken.substring(freshToken.length - 8)}`,
       });
     } catch (error: any) {
@@ -567,7 +972,7 @@ async function startServer() {
   });
 
   // GET /api/cron-config: Get scheduler status and metadata
-  app.get('/api/cron-config', (_req: Request, res: Response) => {
+  app.get('/api/cron-config', async (_req: Request, res: Response) => {
     const now = new Date();
     const pktNow = new Date(now.getTime() + 5 * 60 * 60 * 1000);
 
@@ -582,6 +987,9 @@ async function startServer() {
       nextRun.setUTCDate(nextRun.getUTCDate() + 1);
     }
 
+    const accounts = await readAccounts().catch(() => []);
+    const activeAccountsCount = accounts.filter((a) => a.enabled).length;
+
     res.json({
       schedulerActive: internalSchedulerActive,
       cronExpression: '0 3 * * 1-6',
@@ -590,6 +998,7 @@ async function startServer() {
       utcCurrentTime: now.toISOString(),
       nextRunPkt: nextRun.toISOString().replace('Z', '+05:00'),
       lastScheduledWorkDate,
+      activeAccountsCount,
       defaults: {
         personId: process.env.KAIA_PERSON_ID || '3a38a9c0-f965-4fde-8c10-84a07dff2901',
         supabaseUrl: process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co',

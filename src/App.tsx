@@ -24,6 +24,20 @@ export default function App() {
   const [cronStatus, setCronStatus] = useState<CronStatus | null>(null);
   const [isClockingIn, setIsClockingIn] = useState(false);
   const [inspectedLog, setInspectedLog] = useState<ExecutionLog | null>(null);
+  const [globalNotice, setGlobalNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Sync accounts to backend server so automated cron jobs have the latest list
+  const syncAccountsToServer = async (accounts = config.accounts) => {
+    try {
+      await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accounts }),
+      });
+    } catch (e) {
+      console.error('Failed to sync accounts to server', e);
+    }
+  };
 
   // Load logs and cron status
   const fetchLogs = async () => {
@@ -53,6 +67,7 @@ export default function App() {
   useEffect(() => {
     fetchLogs();
     fetchCronStatus();
+    void syncAccountsToServer(config.accounts);
     const interval = setInterval(() => {
       fetchLogs();
     }, 15000);
@@ -62,6 +77,7 @@ export default function App() {
   const handleSaveConfig = (updated: AppConfig) => {
     setConfig(updated);
     saveStoredConfig(updated);
+    void syncAccountsToServer(updated.accounts);
   };
 
   const handleToggleScheduler = async () => {
@@ -87,7 +103,7 @@ export default function App() {
     }
   };
 
-  // Push attendance core handler
+  // Push attendance core handler (supports batch multi-account or single target account)
   const handlePushAttendance = async ({
     workDate,
     pktTime,
@@ -99,6 +115,7 @@ export default function App() {
     lng,
     distanceM,
     accessToken,
+    targetAccountId,
   }: {
     workDate?: string;
     pktTime?: string;
@@ -110,6 +127,7 @@ export default function App() {
     lng?: number;
     distanceM?: number;
     accessToken?: string;
+    targetAccountId?: string;
   }) => {
     setIsClockingIn(true);
     try {
@@ -120,6 +138,19 @@ export default function App() {
       if (!resolvedUtc && pktTime) {
         resolvedUtc = pktToUtcIso(targetWorkDate, pktTime);
       }
+
+      const targetAccounts = targetAccountId
+        ? config.accounts.filter((a) => a.id === targetAccountId)
+        : config.accounts.filter((a) => a.enabled);
+
+      // If a one-time accessToken override was supplied for a single account
+      const accountsPayload = targetAccounts.map((acc) => ({
+        ...acc,
+        manualToken: accessToken || acc.manualToken,
+        lat: lat ?? acc.lat ?? config.lat,
+        lng: lng ?? acc.lng ?? config.lng,
+        distanceM: distanceM ?? acc.distanceM ?? config.distanceM,
+      }));
 
       const res = await fetch('/api/clock-in', {
         method: 'POST',
@@ -132,10 +163,8 @@ export default function App() {
           late,
           supabaseUrl: config.supabaseUrl,
           supabaseAnonKey: config.supabaseAnonKey,
-          personId: config.personId,
-          email: config.kaiaEmail || undefined,
-          password: config.kaiaPassword || undefined,
-          accessToken: accessToken || config.manualToken || undefined,
+          accounts: accountsPayload,
+          persistAccounts: !targetAccountId,
           lat: lat ?? config.lat,
           lng: lng ?? config.lng,
           distanceM: distanceM ?? config.distanceM,
@@ -154,21 +183,31 @@ export default function App() {
     }
   };
 
-  // Quick clock in from header button
+  // Quick clock in from header button (clocks in all enabled accounts)
   const handleQuickClockIn = async () => {
+    setGlobalNotice(null);
     try {
       const today = getPKTDate();
-      await handlePushAttendance({
+      const res = await handlePushAttendance({
         workDate: today.dateString,
         pktTime: '08:00:08',
         addJitter: true,
         simulate: false,
         late: false,
       });
+      setGlobalNotice({
+        type: 'success',
+        text: `Clocked in ${res.successCount ?? 1} of ${res.totalAccounts ?? 1} enabled account(s) for ${today.dateString}!`,
+      });
     } catch (err: any) {
-      alert(`Clock-in failed: ${err.message}`);
+      setGlobalNotice({
+        type: 'error',
+        text: `Clock-in failed: ${err.message}`,
+      });
     }
   };
+
+  const enabledAccountsCount = config.accounts.filter((a) => a.enabled).length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -178,6 +217,7 @@ export default function App() {
         onSelectTab={setActiveTab}
         onQuickClockIn={handleQuickClockIn}
         isClockingIn={isClockingIn}
+        enabledAccountsCount={enabledAccountsCount}
       />
 
       {/* Live Precision Ticking Clocks & Timezone Strip */}
@@ -185,6 +225,27 @@ export default function App() {
         schedulerActive={cronStatus?.schedulerActive ?? true}
         onToggleScheduler={handleToggleScheduler}
       />
+
+      {/* Global Quick-Action Toast */}
+      {globalNotice && (
+        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div
+            className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-4 ${
+              globalNotice.type === 'success'
+                ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200'
+                : 'bg-rose-950/50 border-rose-500/40 text-rose-200'
+            }`}
+          >
+            <span>{globalNotice.text}</span>
+            <button
+              onClick={() => setGlobalNotice(null)}
+              className="text-slate-400 hover:text-white cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -197,6 +258,7 @@ export default function App() {
             onInspectLog={setInspectedLog}
             onClearLogs={handleClearLogs}
             onRefreshLogs={fetchLogs}
+            onOpenSettings={() => setActiveTab('settings')}
           />
         )}
 
@@ -238,6 +300,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <span>KAIA Attendance Automator</span>
+            <span aria-hidden="true">·</span>
+            <span>{enabledAccountsCount} Enabled Account(s)</span>
             <span aria-hidden="true">·</span>
             <span>Target: 08:00 AM PKT</span>
             <span aria-hidden="true">·</span>

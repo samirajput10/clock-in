@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Users, Plus, Settings, Play } from 'lucide-react';
 import { AppConfig, ExecutionLog } from '../types/index.ts';
 import { getPKTDate } from '../utils/time.ts';
 
@@ -12,10 +13,12 @@ interface DashboardTabProps {
     addJitter: boolean;
     simulate: boolean;
     late: boolean;
-  }) => Promise<void>;
+    targetAccountId?: string;
+  }) => Promise<any>;
   onInspectLog: (log: ExecutionLog) => void;
   onClearLogs: () => void;
   onRefreshLogs: () => void;
+  onOpenSettings: () => void;
 }
 
 export function DashboardTab({
@@ -26,30 +29,44 @@ export function DashboardTab({
   onInspectLog,
   onClearLogs,
   onRefreshLogs,
+  onOpenSettings,
 }: DashboardTabProps) {
   const todayPKT = getPKTDate();
   const [selectedDate, setSelectedDate] = useState(todayPKT.dateString);
   const [selectedTime, setSelectedTime] = useState('08:00:08');
+  const [targetAccountId, setTargetAccountId] = useState<string>('all');
   const [addJitter, setAddJitter] = useState(config.autoJitter);
   const [simulate, setSimulate] = useState(config.simulateMode);
   const [isLate, setIsLate] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleTrigger = async () => {
+  const enabledAccounts = config.accounts.filter((a) => a.enabled);
+
+  const handleTrigger = async (overrideAccountId?: string) => {
     setStatusMessage(null);
+    const effectiveTarget = overrideAccountId || targetAccountId;
     try {
-      await onPushAttendance({
+      const res = await onPushAttendance({
         workDate: selectedDate,
         pktTime: selectedTime,
         addJitter,
         simulate,
         late: isLate,
+        targetAccountId: effectiveTarget === 'all' ? undefined : effectiveTarget,
       });
+
+      const countMsg =
+        res?.totalAccounts && res.totalAccounts > 1
+          ? `${res.successCount}/${res.totalAccounts} accounts`
+          : effectiveTarget === 'all'
+          ? `${enabledAccounts.length} account(s)`
+          : config.accounts.find((a) => a.id === effectiveTarget)?.label || 'account';
+
       setStatusMessage({
         type: 'success',
         text: simulate
-          ? `Simulation completed successfully for ${selectedDate}!`
-          : `Attendance record successfully pushed to Supabase for ${selectedDate}!`,
+          ? `Simulation completed for ${countMsg} on ${selectedDate}!`
+          : `Attendance successfully pushed for ${countMsg} on ${selectedDate}!`,
       });
     } catch (err: any) {
       setStatusMessage({
@@ -85,46 +102,90 @@ export function DashboardTab({
         </div>
       )}
 
-      {/* Primary KPI & System Parameters Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <div className="text-xs font-medium text-slate-400 mb-1">Target Person ID</div>
-          <div className="text-sm font-bold text-white font-mono truncate" title={config.personId}>
-            {config.personId}
+      {/* Multi-Account Roster Section */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <Users size={18} className="text-indigo-400" />
+            <div>
+              <h2 className="text-base font-bold text-white">
+                Active KAIA Accounts ({enabledAccounts.length} of {config.accounts.length} Enabled)
+              </h2>
+              <p className="text-xs text-slate-400">
+                Clock in all enabled accounts simultaneously or trigger individual accounts below
+              </p>
+            </div>
           </div>
-          <div className="text-[11px] text-slate-400 mt-2">
-            Foreign key for KAIA Supabase attendance
+
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={onOpenSettings}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Plus size={14} />
+              <span>Add / Manage Credentials</span>
+            </button>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <div className="text-xs font-medium text-slate-400 mb-1">Target Schedule</div>
-          <div className="text-sm font-bold text-white font-mono">
-            08:00 AM PKT (03:00 UTC)
-          </div>
-          <div className="text-[11px] text-emerald-400 mt-2">
-            Non-late target window (Mon–Sat)
-          </div>
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {config.accounts.map((acc, idx) => {
+            const hasCreds = Boolean(acc.kaiaEmail.trim() || acc.manualToken.trim());
+            return (
+              <div
+                key={acc.id}
+                className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
+                  acc.enabled
+                    ? 'bg-slate-950/70 border-slate-800'
+                    : 'bg-slate-950/30 border-slate-800/50 opacity-60'
+                }`}
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-bold text-white truncate">
+                      {acc.label || `Account ${idx + 1}`}
+                    </span>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        acc.enabled ? 'text-emerald-400' : 'text-slate-500'
+                      }`}
+                    >
+                      {acc.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <div className="text-xs font-medium text-slate-400 mb-1">Office Coordinates</div>
-          <div className="text-sm font-bold text-white font-mono tabular-nums">
-            {config.lat.toFixed(5)}, {config.lng.toFixed(5)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-2">
-            Distance: {config.distanceM}m (Office Perimeter)
-          </div>
-        </div>
+                  <div className="text-xs font-mono text-slate-300 truncate">
+                    {acc.kaiaEmail || (acc.manualToken ? 'Using Manual JWT Token' : 'No email configured yet')}
+                  </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <div className="text-xs font-medium text-slate-400 mb-1">Supabase Endpoint</div>
-          <div className="text-sm font-bold text-indigo-300 font-mono truncate" title={config.supabaseUrl}>
-            {config.supabaseUrl.replace('https://', '')}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-2">
-            Table: <code className="text-slate-300">attendance</code> (upsert)
-          </div>
+                  <div className="text-[11px] font-mono text-slate-500 truncate">
+                    ID: {acc.personId ? `${acc.personId.slice(0, 14)}…` : 'Auto-detects on login'}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                  {hasCreds ? (
+                    <button
+                      onClick={() => handleTrigger(acc.id)}
+                      disabled={isClockingIn}
+                      className="flex-1 py-1.5 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Play size={12} />
+                      <span>Clock In {acc.label}</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={onOpenSettings}
+                      className="flex-1 py-1.5 px-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Settings size={12} />
+                      <span>Enter Credentials</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -136,7 +197,7 @@ export function DashboardTab({
             <div>
               <h2 className="text-lg font-bold text-white">Attendance Dispatch Console</h2>
               <p className="text-xs text-slate-400">
-                Trigger an immediate clock-in upsert or dry-run simulation
+                Trigger an immediate multi-account clock-in or dry-run simulation
               </p>
             </div>
             <div className="text-xs font-medium text-slate-400 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
@@ -145,6 +206,27 @@ export function DashboardTab({
           </div>
 
           <div className="space-y-5">
+            {/* Target Account Selector */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                Target Account(s)
+              </label>
+              <select
+                value={targetAccountId}
+                onChange={(e) => setTargetAccountId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="all">
+                  All Enabled Accounts ({enabledAccounts.length} active) — Staggered Jitter
+                </option>
+                {config.accounts.map((acc, i) => (
+                  <option key={acc.id} value={acc.id}>
+                    Only {acc.label || `Account ${i + 1}`} ({acc.kaiaEmail || 'No email set'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
@@ -182,9 +264,9 @@ export function DashboardTab({
                   className="mt-0.5 rounded border-slate-700 text-indigo-600 focus:ring-0"
                 />
                 <div>
-                  <div className="text-xs font-semibold text-white">Human Jitter</div>
+                  <div className="text-xs font-semibold text-white">Independent Jitter</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    Adds 2–24s random delay to prevent bot fingerprinting
+                    Adds unique 2–24s delay per account so timestamps never collide
                   </div>
                 </div>
               </label>
@@ -220,20 +302,9 @@ export function DashboardTab({
               </label>
             </div>
 
-            {/* Pre-flight Info */}
-            <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-slate-400 flex items-center justify-between">
-              <div>
-                <span>Resolved UTC Timestamp: </span>
-                <span className="text-white font-mono">
-                  {new Date(`${selectedDate}T${selectedTime.length === 5 ? selectedTime + ':00' : selectedTime}+05:00`).toISOString()}
-                </span>
-              </div>
-              <span className="text-indigo-400 font-mono">UTC+5 Offset</span>
-            </div>
-
             {/* Submit CTA */}
             <button
-              onClick={handleTrigger}
+              onClick={() => handleTrigger()}
               disabled={isClockingIn}
               className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
                 simulate
@@ -250,9 +321,13 @@ export function DashboardTab({
                   <span>Processing Upsert Request...</span>
                 </>
               ) : simulate ? (
-                <span>Run Dry Simulation (Safe Test)</span>
+                <span>
+                  Run Dry Simulation ({targetAccountId === 'all' ? `${enabledAccounts.length} Accounts` : 'Selected Account'})
+                </span>
               ) : (
-                <span>Push Attendance to Supabase Now</span>
+                <span>
+                  Push Attendance Now ({targetAccountId === 'all' ? `All ${enabledAccounts.length} Enabled Accounts` : 'Selected Account'})
+                </span>
               )}
             </button>
           </div>
@@ -261,25 +336,25 @@ export function DashboardTab({
         {/* Quick Diagnostics & Information (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <h3 className="text-base font-bold text-white mb-3">Supabase Upsert Mechanism</h3>
+            <h3 className="text-base font-bold text-white mb-3">Multi-Account Upsert Mechanism</h3>
             <p className="text-xs text-slate-300 leading-relaxed mb-4">
-              Attendance records are stored in KAIA's Supabase backend. The automator issues an HTTP POST to:
+              Each enabled account authenticates independently and upserts its attendance row into KAIA&apos;s Supabase backend:
             </p>
             <div className="bg-slate-950 border border-slate-800 p-3 rounded-lg font-mono text-[11px] text-indigo-300 break-all mb-4">
               /rest/v1/attendance?on_conflict=person_id%2Cwork_date
             </div>
             <div className="space-y-2 text-xs text-slate-400">
               <div className="flex items-center justify-between">
-                <span>Conflict resolution:</span>
-                <span className="text-slate-200 font-mono">merge-duplicates</span>
+                <span>Configured accounts:</span>
+                <span className="text-slate-200 font-mono">{config.accounts.length} total ({enabledAccounts.length} enabled)</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Distance from office:</span>
-                <span className="text-slate-200 font-mono">{config.distanceM} meters</span>
+                <span>Person ID resolution:</span>
+                <span className="text-emerald-400 font-mono">Auto-detected on login</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Coordinates:</span>
-                <span className="text-slate-200 font-mono">{config.lat.toFixed(4)}, {config.lng.toFixed(4)}</span>
+                <span>Timestamp staggering:</span>
+                <span className="text-slate-200 font-mono">Independent 2–24s jitter</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Auto-skip days:</span>
@@ -289,12 +364,12 @@ export function DashboardTab({
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <h3 className="text-base font-bold text-white mb-2">Automated Cron Routine</h3>
+            <h3 className="text-base font-bold text-white mb-2">Automated Morning Routine</h3>
             <p className="text-xs text-slate-400 leading-relaxed mb-3">
-              The automator is programmed for <strong className="text-white">08:00 AM PKT</strong> (03:00 UTC). To prevent pattern detection by administrative monitoring tools, each automated run applies a non-linear human jitter delay between 2,000ms and 24,000ms.
+              Every Monday–Saturday at <strong className="text-white">08:00 AM PKT</strong> (03:00 UTC), the server loops through all enabled accounts and clocks each one in with an independent random human jitter offset so no two accounts ever share an identical timestamp.
             </p>
             <div className="text-xs font-mono text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800">
-              Schedule: 0 3 * * 1-6 (Mon–Sat)
+              Schedule: 0 3 * * 1-6 (Mon–Sat · All Enabled Accounts)
             </div>
           </div>
         </div>
@@ -306,7 +381,7 @@ export function DashboardTab({
           <div>
             <h3 className="text-base font-bold text-white">Execution Audit Log</h3>
             <p className="text-xs text-slate-400">
-              Recent attendance dispatches, simulations, and automated cron runs
+              Recent attendance dispatches, simulations, and automated cron runs across all accounts
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -338,6 +413,7 @@ export function DashboardTab({
               <thead className="text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
                   <th className="py-2.5 px-3">Timestamp (PKT)</th>
+                  <th className="py-2.5 px-3">Account</th>
                   <th className="py-2.5 px-3">Mode</th>
                   <th className="py-2.5 px-3">Work Date</th>
                   <th className="py-2.5 px-3">Status</th>
@@ -362,6 +438,9 @@ export function DashboardTab({
                           timeZone: 'Asia/Karachi',
                           hour12: false,
                         })}
+                      </td>
+                      <td className="py-3 px-3 font-sans font-semibold text-indigo-300">
+                        {log.accountLabel || 'Account 1'}
                       </td>
                       <td className="py-3 px-3 font-sans">
                         <span className="text-slate-300 uppercase text-[10px] tracking-wide font-medium">
