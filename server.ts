@@ -610,9 +610,8 @@ setInterval(async () => {
   }
 }, 30000);
 
-async function startServer() {
-  const app = express();
-  app.use(express.json());
+export const app = express();
+app.use(express.json());
 
   // Health / Ping
   app.get('/api/ping', (_req: Request, res: Response) => {
@@ -1020,6 +1019,11 @@ async function startServer() {
     res.json({ success: true, schedulerActive: internalSchedulerActive });
   });
 
+export default app;
+
+async function startServer() {
+  if (process.env.VERCEL) return;
+
   // Setup Vite or static files
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
@@ -1045,3 +1049,4 @@ startServer().catch((err) => {
   console.error('Fatal server start error:', err);
   process.exit(1);
 });
+
