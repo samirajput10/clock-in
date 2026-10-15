@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Navbar, TabId } from './components/Navbar.tsx';
 import { ClockBanner } from './components/ClockBanner.tsx';
 import { DashboardTab } from './components/DashboardTab.tsx';
+import { LateAbsentTab } from './components/LateAbsentTab.tsx';
 import { ManualDispatchTab } from './components/ManualDispatchTab.tsx';
 import { AttendanceTableTab } from './components/AttendanceTableTab.tsx';
 import { CronAutomatorTab } from './components/CronAutomatorTab.tsx';
@@ -259,6 +260,14 @@ export default function App() {
             onClearLogs={handleClearLogs}
             onRefreshLogs={fetchLogs}
             onOpenSettings={() => setActiveTab('settings')}
+            onOpenLateAbsent={() => setActiveTab('late-absent')}
+          />
+        )}
+
+        {activeTab === 'late-absent' && (
+          <LateAbsentTab
+            config={config}
+            onRefreshLogs={fetchLogs}
           />
         )}
 
@@ -270,7 +279,10 @@ export default function App() {
         )}
 
         {activeTab === 'history' && (
-          <AttendanceTableTab config={config} />
+          <AttendanceTableTab
+            config={config}
+            onOpenLateAbsent={() => setActiveTab('late-absent')}
+          />
         )}
 
         {activeTab === 'cron' && (

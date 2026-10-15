@@ -1,4 +1,4 @@
-export type TabId = 'dashboard' | 'manual' | 'history' | 'cron' | 'settings' | 'updates';
+export type TabId = 'dashboard' | 'late-absent' | 'manual' | 'history' | 'cron' | 'settings' | 'updates';
 
 interface NavbarProps {
   activeTab: TabId;
@@ -17,7 +17,7 @@ export function Navbar({
 }: NavbarProps) {
   return (
     <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
         {/* Zone 1: Brand Wordmark */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-9 h-9 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold tracking-tight text-sm">
@@ -36,10 +36,10 @@ export function Navbar({
         </div>
 
         {/* Zone 2: Concise Nav Links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+        <nav className="hidden md:flex items-center gap-5 text-sm font-medium">
           <button
             onClick={() => onSelectTab('dashboard')}
-            className={`whitespace-nowrap transition-colors py-1 ${
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'dashboard'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
@@ -48,8 +48,18 @@ export function Navbar({
             Dashboard
           </button>
           <button
+            onClick={() => onSelectTab('late-absent')}
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
+              activeTab === 'late-absent'
+                ? 'text-white border-b-2 border-indigo-500 font-semibold'
+                : 'text-amber-300 hover:text-amber-200'
+            }`}
+          >
+            Late &amp; Absent
+          </button>
+          <button
             onClick={() => onSelectTab('manual')}
-            className={`whitespace-nowrap transition-colors py-1 ${
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'manual'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
@@ -59,7 +69,7 @@ export function Navbar({
           </button>
           <button
             onClick={() => onSelectTab('history')}
-            className={`whitespace-nowrap transition-colors py-1 ${
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'history'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
@@ -69,27 +79,27 @@ export function Navbar({
           </button>
           <button
             onClick={() => onSelectTab('cron')}
-            className={`whitespace-nowrap transition-colors py-1 ${
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'cron'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Cron & Webhooks
+            Cron &amp; Webhooks
           </button>
           <button
             onClick={() => onSelectTab('settings')}
-            className={`whitespace-nowrap transition-colors py-1 ${
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'settings'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Config & Credentials
+            Config &amp; Credentials
           </button>
           <button
             onClick={() => onSelectTab('updates')}
-            className={`whitespace-nowrap transition-colors py-1 ${
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'updates'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
@@ -132,6 +142,12 @@ export function Navbar({
           className={`whitespace-nowrap ${activeTab === 'dashboard' ? 'text-indigo-400 font-semibold' : ''}`}
         >
           Dashboard
+        </button>
+        <button
+          onClick={() => onSelectTab('late-absent')}
+          className={`whitespace-nowrap ${activeTab === 'late-absent' ? 'text-indigo-400 font-semibold' : 'text-amber-300'}`}
+        >
+          Late &amp; Absent
         </button>
         <button
           onClick={() => onSelectTab('manual')}

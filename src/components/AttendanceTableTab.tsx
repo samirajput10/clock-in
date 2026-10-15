@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { AppConfig, SupabaseAttendanceRecord } from '../types/index.ts';
-import { formatToPKT } from '../utils/time.ts';
+import { formatToPKT, pktToUtcIso } from '../utils/time.ts';
 import { safeParseJson } from '../utils/safeJson.ts';
 
 interface AttendanceTableTabProps {
   config: AppConfig;
+  onOpenLateAbsent?: () => void;
 }
 
-export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
+export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTableTabProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     config.accounts[0]?.id || 'acc-1'
   );
   const [records, setRecords] = useState<SupabaseAttendanceRecord[]>([]);
   const [resolvedPersonId, setResolvedPersonId] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [updatingDate, setUpdatingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<SupabaseAttendanceRecord | null>(null);
 
@@ -32,6 +35,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
         password: activeAccount.kaiaPassword || '',
         supabaseUrl: config.supabaseUrl,
         supabaseAnonKey: config.supabaseAnonKey,
+        limit: '120',
       });
       if (activeAccount.manualToken) {
         params.set('accessToken', activeAccount.manualToken);
@@ -55,6 +59,53 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
     fetchRecords();
   }, [selectedAccountId, activeAccount?.personId, activeAccount?.kaiaEmail]);
 
+  const handleQuickRowUpdate = async (workDate: string, markLate: boolean) => {
+    if (!activeAccount) return;
+    setUpdatingDate(workDate);
+    setNotice(null);
+    try {
+      const pktTime = markLate ? '08:35:10' : '08:00:08';
+      const clockInIsoUTC = pktToUtcIso(workDate, pktTime);
+      const res = await fetch('/api/attendance/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supabaseUrl: config.supabaseUrl,
+          supabaseAnonKey: config.supabaseAnonKey,
+          addJitter: true,
+          simulate: false,
+          lat: activeAccount.lat ?? config.lat,
+          lng: activeAccount.lng ?? config.lng,
+          distanceM: activeAccount.distanceM ?? config.distanceM,
+          accounts: [activeAccount],
+          entries: [
+            {
+              workDate,
+              clockInIsoUTC,
+              late: markLate,
+            },
+          ],
+        }),
+      });
+      const data = await safeParseJson(res);
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Failed to update ${workDate}`);
+      }
+      setNotice({
+        type: 'success',
+        text: `Updated ${workDate} to ${markLate ? 'Late (08:35 PKT)' : 'On-Time (08:00 PKT)'} for ${activeAccount.label}!`,
+      });
+      await fetchRecords();
+    } catch (err: any) {
+      setNotice({
+        type: 'error',
+        text: `Failed to update ${workDate}: ${err.message}`,
+      });
+    } finally {
+      setUpdatingDate(null);
+    }
+  };
+
   const filteredRecords = records.filter((r) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
@@ -65,6 +116,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
   });
 
   const onTimeCount = records.filter((r) => !r.late).length;
+  const lateCount = records.filter((r) => r.late).length;
   const onTimeRate = records.length ? Math.round((onTimeCount / records.length) * 100) : 100;
 
   return (
@@ -81,6 +133,14 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {onOpenLateAbsent && (
+            <button
+              onClick={onOpenLateAbsent}
+              className="px-3.5 py-2 text-xs font-semibold bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg border border-amber-500/30 transition-all cursor-pointer"
+            >
+              Open Late &amp; Absent Updater {lateCount > 0 ? `(${lateCount} Late)` : ''}
+            </button>
+          )}
           <button
             onClick={fetchRecords}
             disabled={loading}
@@ -120,6 +180,25 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
         ))}
       </div>
 
+      {/* Notice banner */}
+      {notice && (
+        <div
+          className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-4 ${
+            notice.type === 'success'
+              ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200'
+              : 'bg-rose-950/50 border-rose-500/40 text-rose-200'
+          }`}
+        >
+          <span>{notice.text}</span>
+          <button
+            onClick={() => setNotice(null)}
+            className="text-slate-400 hover:text-white cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Summary KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
@@ -136,7 +215,7 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
             {onTimeRate}%
           </div>
           <div className="text-[11px] text-slate-400 mt-1">
-            {onTimeCount} on-time of {records.length} total entries
+            {onTimeCount} on-time · {lateCount} late of {records.length} total entries
           </div>
         </div>
 
@@ -204,48 +283,66 @@ export function AttendanceTableTab({ config }: AttendanceTableTabProps) {
                 <tr>
                   <th className="py-3 px-4">Work Date</th>
                   <th className="py-3 px-4">Clock-In (PKT Time)</th>
-                  <th className="py-3 px-4">Clock-In (UTC)</th>
                   <th className="py-3 px-4">Distance</th>
                   <th className="py-3 px-4">Coordinates</th>
                   <th className="py-3 px-4">Punctuality</th>
-                  <th className="py-3 px-4 text-right">Details</th>
+                  <th className="py-3 px-4 text-right">Quick Update / Details</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {filteredRecords.map((record) => (
-                  <tr key={record.work_date} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3.5 px-4 font-semibold text-white">
-                      {record.work_date}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-300 tabular-nums">
-                      {formatToPKT(record.clock_in_at)}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400 tabular-nums truncate max-w-[140px]">
-                      {record.clock_in_at}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-300 tabular-nums">
-                      {record.clock_in_distance_m} m
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400 tabular-nums">
-                      {Number(record.clock_in_lat || 0).toFixed(4)}, {Number(record.clock_in_lng || 0).toFixed(4)}
-                    </td>
-                    <td className="py-3.5 px-4 font-sans">
-                      {record.late ? (
-                        <span className="text-rose-400 font-medium">Late</span>
-                      ) : (
-                        <span className="text-emerald-400 font-medium">On-Time</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-sans">
-                      <button
-                        onClick={() => setSelectedRecord(record)}
-                        className="px-2.5 py-1 text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md transition-colors cursor-pointer"
-                      >
-                        View JSON
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredRecords.map((record) => {
+                  const isUpdating = updatingDate === record.work_date;
+                  return (
+                    <tr key={record.work_date} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 font-semibold text-white">
+                        {record.work_date}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-300 tabular-nums">
+                        {formatToPKT(record.clock_in_at)}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-300 tabular-nums">
+                        {record.clock_in_distance_m} m
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-400 tabular-nums">
+                        {Number(record.clock_in_lat || 0).toFixed(4)}, {Number(record.clock_in_lng || 0).toFixed(4)}
+                      </td>
+                      <td className="py-3.5 px-4 font-sans">
+                        {record.late ? (
+                          <span className="text-amber-400 font-semibold">Late</span>
+                        ) : (
+                          <span className="text-emerald-400 font-semibold">On-Time</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-sans">
+                        <div className="flex items-center justify-end gap-2">
+                          {record.late ? (
+                            <button
+                              disabled={isUpdating}
+                              onClick={() => handleQuickRowUpdate(record.work_date, false)}
+                              className="px-2.5 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {isUpdating ? 'Updating...' : 'Fix to On-Time'}
+                            </button>
+                          ) : (
+                            <button
+                              disabled={isUpdating}
+                              onClick={() => handleQuickRowUpdate(record.work_date, true)}
+                              className="px-2.5 py-1 text-[11px] font-medium bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-500/30 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {isUpdating ? 'Updating...' : 'Update as Late'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setSelectedRecord(record)}
+                            className="px-2.5 py-1 text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md transition-colors cursor-pointer"
+                          >
+                            View JSON
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

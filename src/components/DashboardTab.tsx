@@ -19,6 +19,7 @@ interface DashboardTabProps {
   onClearLogs: () => void;
   onRefreshLogs: () => void;
   onOpenSettings: () => void;
+  onOpenLateAbsent: () => void;
 }
 
 export function DashboardTab({
@@ -30,6 +31,7 @@ export function DashboardTab({
   onClearLogs,
   onRefreshLogs,
   onOpenSettings,
+  onOpenLateAbsent,
 }: DashboardTabProps) {
   const todayPKT = getPKTDate();
   const [selectedDate, setSelectedDate] = useState(todayPKT.dateString);
@@ -117,7 +119,13 @@ export function DashboardTab({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={onOpenLateAbsent}
+              className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-xs font-semibold rounded-lg border border-amber-500/30 transition-colors cursor-pointer"
+            >
+              Update Previous Late &amp; Absent
+            </button>
             <button
               onClick={onOpenSettings}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"

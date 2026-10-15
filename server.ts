@@ -468,8 +468,9 @@ async function pushAttendance(params: PushAttendanceParams) {
       updated_at: targetIsoUTC,
     };
 
+    // First try upsert via POST with resolution=merge-duplicates
     const endpoint = `${url}/rest/v1/attendance?on_conflict=person_id%2Cwork_date`;
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         apikey: anonKey,
@@ -480,10 +481,35 @@ async function pushAttendance(params: PushAttendanceParams) {
       body: JSON.stringify(payload),
     });
 
+    // If POST upsert fails (e.g. RLS policy requires PATCH for existing rows), try PATCH by person_id & work_date
+    if (!response.ok) {
+      const patchUrl = `${url}/rest/v1/attendance?person_id=eq.${encodeURIComponent(personId)}&work_date=eq.${encodeURIComponent(targetWorkDate)}`;
+      const patchResponse = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({
+          clock_in_at: targetIsoUTC,
+          clock_in_distance_m: distanceM,
+          clock_in_lat: lat,
+          clock_in_lng: lng,
+          late: isLate,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (patchResponse.ok) {
+        response = patchResponse;
+      }
+    }
+
     const responseStatus = response.status;
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(`Attendance Upsert Failed (${responseStatus}): ${errorBody}`);
+      throw new Error(`Attendance Upsert/Update Failed (${responseStatus}): ${errorBody}`);
     }
 
     const result = await safeParseJson(response);
@@ -503,7 +529,7 @@ async function pushAttendance(params: PushAttendanceParams) {
       jitterAppliedMs: jitterMs,
       responseStatus,
       responseBody: result,
-      message: `[${accountLabel}] Attendance record successfully upserted into KAIA Supabase attendance table.`,
+      message: `[${accountLabel}] Attendance record for ${targetWorkDate} updated (${isLate ? 'Late' : 'On-Time'}) in KAIA Supabase.`,
     };
     addLog(successLog);
 
@@ -786,6 +812,101 @@ app.use(express.json());
     }
   });
 
+  // POST /api/attendance/batch-update: Bulk update/backfill multiple Late or Absent dates across accounts
+  app.post('/api/attendance/batch-update', async (req: Request, res: Response) => {
+    try {
+      const body = req.body || {};
+      const entries: Array<{
+        workDate: string;
+        clockInIsoUTC?: string;
+        late?: boolean;
+        lat?: number;
+        lng?: number;
+        distanceM?: number;
+      }> = Array.isArray(body.entries) ? body.entries : [];
+
+      const accounts: ServerKaiaAccount[] = Array.isArray(body.accounts) ? body.accounts : [];
+
+      if (entries.length === 0) {
+        return res.status(400).json({ success: false, error: 'No date entries provided for batch update.' });
+      }
+      if (accounts.length === 0) {
+        return res.status(400).json({ success: false, error: 'No target account(s) provided.' });
+      }
+
+      const tasks: Array<{ accountLabel: string; workDate: string; promise: Promise<any> }> = [];
+      for (const acc of accounts) {
+        for (const entry of entries) {
+          tasks.push({
+            accountLabel: acc.label || acc.kaiaEmail || acc.id,
+            workDate: entry.workDate,
+            promise: pushAttendance({
+              workDate: entry.workDate,
+              clockInIsoUTC: entry.clockInIsoUTC,
+              addJitter: body.addJitter ?? true,
+              simulate: body.simulate ?? false,
+              supabaseUrl: body.supabaseUrl,
+              supabaseAnonKey: body.supabaseAnonKey,
+              accountId: acc.id,
+              accountLabel: acc.label || acc.kaiaEmail || acc.id,
+              personId: acc.personId,
+              email: acc.kaiaEmail,
+              password: acc.kaiaPassword,
+              accessToken: acc.manualToken,
+              lat: entry.lat ?? acc.lat ?? body.lat,
+              lng: entry.lng ?? acc.lng ?? body.lng,
+              distanceM: entry.distanceM ?? acc.distanceM ?? body.distanceM,
+              late: entry.late ?? body.late ?? false,
+              mode: 'manual',
+            }),
+          });
+        }
+      }
+
+      const settled = await Promise.allSettled(tasks.map((t) => t.promise));
+      const results = settled.map((r, idx) =>
+        r.status === 'fulfilled'
+          ? {
+              account: tasks[idx].accountLabel,
+              workDate: tasks[idx].workDate,
+              success: true,
+              ...r.value,
+            }
+          : {
+              account: tasks[idx].accountLabel,
+              workDate: tasks[idx].workDate,
+              success: false,
+              error: r.reason?.message || String(r.reason),
+            }
+      );
+
+      const successCount = results.filter((r) => r.success).length;
+      const failureCount = results.length - successCount;
+
+      if (successCount === 0) {
+        const firstError = (results[0] as any)?.error || 'Batch update failed';
+        return res.status(500).json({
+          success: false,
+          error: firstError,
+          totalOperations: results.length,
+          successCount,
+          failureCount,
+          results,
+        });
+      }
+
+      return res.json({
+        success: true,
+        totalOperations: results.length,
+        successCount,
+        failureCount,
+        results,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // GET /api/attendance/history: Pull real records from Supabase attendance table
   app.get('/api/attendance/history', async (req: Request, res: Response) => {
     try {
@@ -794,6 +915,9 @@ app.use(express.json());
       const rawPersonId = (req.query.personId as string) || '';
       const email = (req.query.email as string) || '';
       const password = (req.query.password as string) || '';
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 120));
+      const startDate = (req.query.startDate as string) || '';
+      const endDate = (req.query.endDate as string) || '';
       const manualToken = (req.headers['authorization']?.replace('Bearer ', '') || (req.query.accessToken as string))?.trim();
 
       let token = manualToken;
@@ -820,7 +944,14 @@ app.use(express.json());
         personId = process.env.KAIA_PERSON_ID || '3a38a9c0-f965-4fde-8c10-84a07dff2901';
       }
 
-      const queryUrl = `${url}/rest/v1/attendance?person_id=eq.${encodeURIComponent(personId)}&order=work_date.desc&limit=30`;
+      let queryUrl = `${url}/rest/v1/attendance?person_id=eq.${encodeURIComponent(personId)}&order=work_date.desc&limit=${limit}`;
+      if (startDate) {
+        queryUrl += `&work_date=gte.${encodeURIComponent(startDate)}`;
+      }
+      if (endDate) {
+        queryUrl += `&work_date=lte.${encodeURIComponent(endDate)}`;
+      }
+
       const response = await fetch(queryUrl, {
         method: 'GET',
         headers: {
