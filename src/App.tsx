@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Navbar, TabId } from './components/Navbar.tsx';
 import { ClockBanner } from './components/ClockBanner.tsx';
 import { DashboardTab } from './components/DashboardTab.tsx';
+import { BatchesTab } from './components/BatchesTab.tsx';
 import { LateAbsentTab } from './components/LateAbsentTab.tsx';
 import { ManualDispatchTab } from './components/ManualDispatchTab.tsx';
 import { AttendanceTableTab } from './components/AttendanceTableTab.tsx';
@@ -40,6 +41,28 @@ export default function App() {
     }
   };
 
+  // Hydrate server-saved accounts if local storage accounts have empty credentials
+  const hydrateOrSyncAccounts = async () => {
+    try {
+      const hasLocalCreds = config.accounts.some((a) => a.kaiaEmail?.trim() && a.kaiaPassword?.trim());
+      if (!hasLocalCreds) {
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const data = await safeParseJson(res);
+          if (Array.isArray(data.accounts) && data.accounts.some((a: any) => a.kaiaEmail)) {
+            const merged: AppConfig = { ...config, accounts: data.accounts };
+            setConfig(merged);
+            saveStoredConfig(merged);
+            return;
+          }
+        }
+      }
+      await syncAccountsToServer(config.accounts);
+    } catch (e) {
+      console.error('Account hydration error', e);
+    }
+  };
+
   // Load logs and cron status
   const fetchLogs = async () => {
     try {
@@ -68,7 +91,7 @@ export default function App() {
   useEffect(() => {
     fetchLogs();
     fetchCronStatus();
-    void syncAccountsToServer(config.accounts);
+    void hydrateOrSyncAccounts();
     const interval = setInterval(() => {
       fetchLogs();
     }, 15000);
@@ -261,7 +284,12 @@ export default function App() {
             onRefreshLogs={fetchLogs}
             onOpenSettings={() => setActiveTab('settings')}
             onOpenLateAbsent={() => setActiveTab('late-absent')}
+            onOpenBatches={() => setActiveTab('batches')}
           />
+        )}
+
+        {activeTab === 'batches' && (
+          <BatchesTab config={config} />
         )}
 
         {activeTab === 'late-absent' && (

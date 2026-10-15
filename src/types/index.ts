@@ -91,3 +91,58 @@ export interface CronStatus {
     distanceM: number;
   };
 }
+
+export interface KaiaPersonProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  roles?: string[];
+  pay_model?: string;
+  base_rate?: number;
+  current_level?: number;
+  current_score?: number;
+  warnings?: number;
+  status?: string;
+  active?: boolean;
+  shift?: string;
+}
+
+export interface KaiaBatch {
+  id: string;
+  client_id: string | null;
+  product_id: string | null;
+  name: string;
+  format: string | null;
+  status: string;
+  current_status_since: string | null;
+  scriptwriter_id: string | null;
+  creator_id: string | null;
+  editor_id: string | null;
+  qc_id: string | null;
+  media_buyer_id: string | null;
+  brief_url: string | null;
+  creative_url: string | null;
+  hooks: number | null;
+  minutes: number | null;
+  quality: number | null;
+  internal_revisions: number;
+  client_revisions: number;
+  pay_status: string | null;
+  language: string | null;
+  created_at: string;
+  approved_at: string | null;
+  updated_at: string | null;
+  due_at: string | null;
+  clients?: {
+    id: string;
+    name: string;
+    platform?: string | null;
+    complexity?: number | null;
+  } | null;
+  products?: {
+    id: string;
+    name: string;
+  } | null;
+}
+

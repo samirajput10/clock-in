@@ -445,13 +445,22 @@ async function pushAttendance(params: PushAttendanceParams) {
 
   let personId = params.personId?.trim() || '';
   try {
+    const resolvedCreds = await resolveAccountCredentials({
+      accountId: params.accountId,
+      personId,
+      email: params.email,
+      password: params.password,
+      accessToken: params.accessToken,
+    });
+    personId = resolvedCreds.personId || personId;
+
     // Obtain token
     const { token, authUserId } = await getFreshAuth(
       url,
       anonKey,
-      params.email,
-      params.password,
-      params.accessToken
+      resolvedCreds.email,
+      resolvedCreds.password,
+      resolvedCreds.accessToken
     );
 
     // Resolve personId (explicit or auto-discovered from Supabase)
@@ -907,24 +916,61 @@ app.use(express.json());
     }
   });
 
+  // Helper to resolve credentials from request OR fallback to server-saved accounts.json
+  async function resolveAccountCredentials(input: {
+    accountId?: string;
+    personId?: string;
+    email?: string;
+    password?: string;
+    accessToken?: string;
+  }) {
+    let email = input.email?.trim() || '';
+    let password = input.password || '';
+    let accessToken = input.accessToken?.trim() || '';
+    let personId = input.personId?.trim() || '';
+
+    if (!accessToken && (!email || !password)) {
+      const savedAccounts = await readAccounts().catch(() => []);
+      const match =
+        savedAccounts.find((a) => input.accountId && a.id === input.accountId) ||
+        savedAccounts.find((a) => personId && a.personId === personId) ||
+        savedAccounts.find((a) => email && a.kaiaEmail === email) ||
+        savedAccounts.find((a) => a.kaiaEmail && a.kaiaPassword);
+
+      if (match) {
+        email = email || match.kaiaEmail;
+        password = password || match.kaiaPassword;
+        accessToken = accessToken || match.manualToken;
+        personId = personId || match.personId;
+      }
+    }
+
+    return { email, password, accessToken, personId };
+  }
+
   // GET /api/attendance/history: Pull real records from Supabase attendance table
   app.get('/api/attendance/history', async (req: Request, res: Response) => {
     try {
       const url = ((req.query.supabaseUrl as string) || process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co').replace(/\/$/, '');
       const anonKey = (req.query.supabaseAnonKey as string) || process.env.SUPABASE_ANON_KEY || '';
-      const rawPersonId = (req.query.personId as string) || '';
-      const email = (req.query.email as string) || '';
-      const password = (req.query.password as string) || '';
       const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 120));
       const startDate = (req.query.startDate as string) || '';
       const endDate = (req.query.endDate as string) || '';
-      const manualToken = (req.headers['authorization']?.replace('Bearer ', '') || (req.query.accessToken as string))?.trim();
+      const rawManualToken = (req.headers['authorization']?.replace('Bearer ', '') || (req.query.accessToken as string))?.trim();
 
-      let token = manualToken;
+      const resolved = await resolveAccountCredentials({
+        accountId: req.query.accountId as string,
+        personId: req.query.personId as string,
+        email: req.query.email as string,
+        password: req.query.password as string,
+        accessToken: rawManualToken,
+      });
+
+      let token = resolved.accessToken;
       let authUserId: string | undefined;
       if (!token) {
         try {
-          const auth = await getFreshAuth(url, anonKey, email || undefined, password || undefined);
+          const auth = await getFreshAuth(url, anonKey, resolved.email || undefined, resolved.password || undefined);
           token = auth.token;
           authUserId = auth.authUserId;
         } catch {
@@ -932,7 +978,7 @@ app.use(express.json());
         }
       }
 
-      let personId = rawPersonId.trim();
+      let personId = resolved.personId;
       if (!personId && token && token !== anonKey) {
         try {
           personId = await resolvePersonId(url, anonKey, token, authUserId);
@@ -971,6 +1017,176 @@ app.use(express.json());
 
       const records = await safeParseJson(response);
       return res.json({ success: true, personId, records: Array.isArray(records) ? records : [] });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/batches: Fetch batches assigned to an account (creator, editor, scriptwriter, qc, or media_buyer) + person profile
+  app.get('/api/batches', async (req: Request, res: Response) => {
+    try {
+      const url = ((req.query.supabaseUrl as string) || process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co').replace(/\/$/, '');
+      const anonKey = (req.query.supabaseAnonKey as string) || process.env.SUPABASE_ANON_KEY || '';
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+      const rawManualToken = (req.headers['authorization']?.replace('Bearer ', '') || (req.query.accessToken as string))?.trim();
+
+      const resolved = await resolveAccountCredentials({
+        accountId: req.query.accountId as string,
+        personId: req.query.personId as string,
+        email: req.query.email as string,
+        password: req.query.password as string,
+        accessToken: rawManualToken,
+      });
+
+      let token = resolved.accessToken;
+      let authUserId: string | undefined;
+      if (!token) {
+        const auth = await getFreshAuth(url, anonKey, resolved.email || undefined, resolved.password || undefined);
+        token = auth.token;
+        authUserId = auth.authUserId;
+      }
+
+      let personId = resolved.personId;
+      if (!personId && token) {
+        personId = await resolvePersonId(url, anonKey, token, authUserId);
+      }
+
+      const headers = {
+        apikey: anonKey,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+
+      // Fetch person profile and assigned batches in parallel
+      const [personRes, batchesRes] = await Promise.all([
+        fetch(`${url}/rest/v1/people?id=eq.${encodeURIComponent(personId)}&limit=1`, { headers }),
+        fetch(
+          `${url}/rest/v1/batches?select=*,clients(id,name,platform,complexity),products(id,name)&or=(creator_id.eq.${encodeURIComponent(personId)},editor_id.eq.${encodeURIComponent(personId)},scriptwriter_id.eq.${encodeURIComponent(personId)},qc_id.eq.${encodeURIComponent(personId)},media_buyer_id.eq.${encodeURIComponent(personId)})&order=created_at.desc&limit=${limit}`,
+          { headers }
+        ),
+      ]);
+
+      if (!batchesRes.ok) {
+        const errorText = await batchesRes.text();
+        return res.status(batchesRes.status).json({
+          success: false,
+          error: `Supabase batches query failed (${batchesRes.status}): ${errorText}`,
+        });
+      }
+
+      const batches = await safeParseJson(batchesRes);
+      let person = null;
+      if (personRes.ok) {
+        const peopleRows = await safeParseJson(personRes);
+        if (Array.isArray(peopleRows) && peopleRows[0]) {
+          person = peopleRows[0];
+        }
+      }
+
+      return res.json({
+        success: true,
+        personId,
+        person,
+        batches: Array.isArray(batches) ? batches : [],
+      });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/batches/update: Update batch rating (quality) and/or status, revisions, minutes, hooks on one or multiple batches
+  app.post('/api/batches/update', async (req: Request, res: Response) => {
+    try {
+      const body = req.body || {};
+      const url = (body.supabaseUrl || process.env.SUPABASE_URL || 'https://llvsmockvufgbqpeepbm.supabase.co').replace(/\/$/, '');
+      const anonKey = body.supabaseAnonKey || process.env.SUPABASE_ANON_KEY || '';
+
+      const batchIds: string[] = Array.isArray(body.batchIds)
+        ? body.batchIds.filter(Boolean)
+        : body.batchId
+        ? [String(body.batchId)]
+        : [];
+
+      if (batchIds.length === 0) {
+        return res.status(400).json({ success: false, error: 'At least one batchId or batchIds array is required.' });
+      }
+
+      const resolved = await resolveAccountCredentials({
+        accountId: body.accountId,
+        personId: body.personId,
+        email: body.email,
+        password: body.password,
+        accessToken: body.accessToken,
+      });
+
+      let token = resolved.accessToken;
+      if (!token) {
+        const auth = await getFreshAuth(url, anonKey, resolved.email || undefined, resolved.password || undefined);
+        token = auth.token;
+      }
+
+      const updatePayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (body.quality !== undefined) {
+        updatePayload.quality = body.quality === null || body.quality === '' ? null : Number(body.quality);
+      }
+      if (body.internal_revisions !== undefined) {
+        updatePayload.internal_revisions = Math.max(0, Number(body.internal_revisions));
+      }
+      if (body.client_revisions !== undefined) {
+        updatePayload.client_revisions = Math.max(0, Number(body.client_revisions));
+      }
+      if (body.status !== undefined && body.status !== '') {
+        updatePayload.status = String(body.status);
+        if ((body.status === 'approved' || body.status === 'client_approved') && body.setApprovedAt) {
+          updatePayload.approved_at = new Date().toISOString();
+        }
+      }
+      if (body.minutes !== undefined) {
+        updatePayload.minutes = body.minutes === null || body.minutes === '' ? null : Number(body.minutes);
+      }
+      if (body.hooks !== undefined) {
+        updatePayload.hooks = body.hooks === null || body.hooks === '' ? null : Number(body.hooks);
+      }
+      if (body.creative_url !== undefined) {
+        updatePayload.creative_url = body.creative_url ? String(body.creative_url).trim() : null;
+      }
+
+      const idFilter =
+        batchIds.length === 1
+          ? `id=eq.${encodeURIComponent(batchIds[0])}`
+          : `id=in.(${batchIds.map((id) => `"${id.replace(/"/g, '')}"`).join(',')})`;
+
+      const patchUrl = `${url}/rest/v1/batches?${idFilter}&select=*,clients(id,name,platform,complexity),products(id,name)`;
+      const response = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(updatePayload),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({
+          success: false,
+          error: `Batch update failed (${response.status}): ${errText}`,
+        });
+      }
+
+      const updatedRows = await safeParseJson(response);
+      const updatedArray = Array.isArray(updatedRows) ? updatedRows : [];
+
+      return res.json({
+        success: true,
+        updatedCount: updatedArray.length,
+        batches: updatedArray,
+      });
     } catch (error: any) {
       return res.status(500).json({ success: false, error: error.message });
     }

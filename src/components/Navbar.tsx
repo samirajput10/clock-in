@@ -1,4 +1,4 @@
-export type TabId = 'dashboard' | 'late-absent' | 'manual' | 'history' | 'cron' | 'settings' | 'updates';
+export type TabId = 'dashboard' | 'batches' | 'late-absent' | 'manual' | 'history' | 'cron' | 'settings' | 'updates';
 
 interface NavbarProps {
   activeTab: TabId;
@@ -46,6 +46,16 @@ export function Navbar({
             }`}
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => onSelectTab('batches')}
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
+              activeTab === 'batches'
+                ? 'text-white border-b-2 border-indigo-500 font-semibold'
+                : 'text-emerald-300 hover:text-emerald-200'
+            }`}
+          >
+            Batches &amp; Ratings
           </button>
           <button
             onClick={() => onSelectTab('late-absent')}
@@ -142,6 +152,12 @@ export function Navbar({
           className={`whitespace-nowrap ${activeTab === 'dashboard' ? 'text-indigo-400 font-semibold' : ''}`}
         >
           Dashboard
+        </button>
+        <button
+          onClick={() => onSelectTab('batches')}
+          className={`whitespace-nowrap ${activeTab === 'batches' ? 'text-indigo-400 font-semibold' : 'text-emerald-300'}`}
+        >
+          Batches &amp; Ratings
         </button>
         <button
           onClick={() => onSelectTab('late-absent')}

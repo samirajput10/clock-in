@@ -20,6 +20,7 @@ interface DashboardTabProps {
   onRefreshLogs: () => void;
   onOpenSettings: () => void;
   onOpenLateAbsent: () => void;
+  onOpenBatches: () => void;
 }
 
 export function DashboardTab({
@@ -32,6 +33,7 @@ export function DashboardTab({
   onRefreshLogs,
   onOpenSettings,
   onOpenLateAbsent,
+  onOpenBatches,
 }: DashboardTabProps) {
   const todayPKT = getPKTDate();
   const [selectedDate, setSelectedDate] = useState(todayPKT.dateString);
@@ -120,6 +122,12 @@ export function DashboardTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={onOpenBatches}
+              className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-semibold rounded-lg border border-emerald-500/30 transition-colors cursor-pointer"
+            >
+              Assigned Batches &amp; Ratings
+            </button>
             <button
               onClick={onOpenLateAbsent}
               className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-xs font-semibold rounded-lg border border-amber-500/30 transition-colors cursor-pointer"
