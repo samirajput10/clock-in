@@ -1,4 +1,13 @@
-export type TabId = 'dashboard' | 'batches' | 'late-absent' | 'manual' | 'history' | 'cron' | 'settings' | 'updates';
+export type TabId =
+  | 'dashboard'
+  | 'portal'
+  | 'batches'
+  | 'late-absent'
+  | 'manual'
+  | 'history'
+  | 'cron'
+  | 'settings'
+  | 'updates';
 
 interface NavbarProps {
   activeTab: TabId;
@@ -17,7 +26,7 @@ export function Navbar({
 }: NavbarProps) {
   return (
     <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Zone 1: Brand Wordmark */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-9 h-9 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold tracking-tight text-sm">
@@ -31,12 +40,12 @@ export function Navbar({
             }}
             className="text-base font-bold tracking-tight text-white whitespace-nowrap hover:text-indigo-300 transition-colors"
           >
-            KAIA Attendance Automator
+            KAIA Ops &amp; Automator
           </a>
         </div>
 
         {/* Zone 2: Concise Nav Links */}
-        <nav className="hidden md:flex items-center gap-5 text-sm font-medium">
+        <nav className="hidden lg:flex items-center gap-4 text-xs font-medium">
           <button
             onClick={() => onSelectTab('dashboard')}
             className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
@@ -46,6 +55,16 @@ export function Navbar({
             }`}
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => onSelectTab('portal')}
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
+              activeTab === 'portal'
+                ? 'text-white border-b-2 border-indigo-500 font-semibold'
+                : 'text-indigo-300 hover:text-indigo-200 font-semibold'
+            }`}
+          >
+            Admin Portal (All Access)
           </button>
           <button
             onClick={() => onSelectTab('batches')}
@@ -144,14 +163,20 @@ export function Navbar({
           </button>
         </div>
       </div>
-      
-      {/* Mobile Tab Navigation Strip */}
-      <div className="flex md:hidden items-center overflow-x-auto border-t border-slate-800/80 px-4 py-2 gap-4 text-xs font-medium text-slate-400">
+
+      {/* Mobile / Tablet Tab Navigation Strip */}
+      <div className="flex lg:hidden items-center overflow-x-auto border-t border-slate-800/80 px-4 py-2 gap-4 text-xs font-medium text-slate-400">
         <button
           onClick={() => onSelectTab('dashboard')}
           className={`whitespace-nowrap ${activeTab === 'dashboard' ? 'text-indigo-400 font-semibold' : ''}`}
         >
           Dashboard
+        </button>
+        <button
+          onClick={() => onSelectTab('portal')}
+          className={`whitespace-nowrap ${activeTab === 'portal' ? 'text-indigo-400 font-semibold' : 'text-indigo-300 font-semibold'}`}
+        >
+          Admin Portal (All Access)
         </button>
         <button
           onClick={() => onSelectTab('batches')}

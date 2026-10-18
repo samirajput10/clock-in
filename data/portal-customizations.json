@@ -1,0 +1,81 @@
+{
+  "overrides": {
+    "people": {
+      "3a38a9c0-f965-4fde-8c10-84a07dff2901": {
+        "id": "3a38a9c0-f965-4fde-8c10-84a07dff2901",
+        "name": "samiullah",
+        "email": "halmarrsami@gmail.com",
+        "role": "admin",
+        "pay_model": "level",
+        "base_rate": 466.12,
+        "current_level": 6,
+        "current_score": 65,
+        "warnings": 0,
+        "status": "ok",
+        "active": true,
+        "created_at": "2026-08-03T07:42:25.428813+00:00",
+        "roles": [
+          "admin",
+          "manager",
+          "accountant",
+          "account_manager",
+          "qc",
+          "ai_creator",
+          "editor",
+          "scriptwriter",
+          "video_editor",
+          "graphic_designer",
+          "lander_builder",
+          "media_buyer"
+        ],
+        "auth_user_id": "3ab78e5e-e11f-43cd-8e27-216134c8f338",
+        "city": "lahore",
+        "remote_allowed": true,
+        "shift": "day",
+        "late_after_min": null,
+        "late_rule_from": null,
+        "primary_client_id": "daf0a8bb-c8d5-465b-83ef-ff5d8266b817",
+        "secondary_client_id": "5d68ce46-5402-43fe-86b4-d66628c1247a",
+        "is_intern": false,
+        "intern_stipend_pkr": null,
+        "intern_started_on": null,
+        "promoted_on": null,
+        "secondary_client_ids": [],
+        "discord_user_id": null,
+        "fixed_salary_pkr": null,
+        "allow_remote": true,
+        "flagged_for_layoff": false,
+        "monthly_pay_usd": 466.12,
+        "updated_at": "2026-10-16T18:39:59.431Z"
+      }
+    },
+    "strikes": {
+      "0116e744-6141-4cb7-b98c-9ae87bc05db5": {
+        "counts_as_warning": false,
+        "revoked_at": "2026-10-16T18:55:48.263Z",
+        "revoked_by": "3a38a9c0-f965-4fde-8c10-84a07dff2901",
+        "revoke_reason": "Cleared by Super-Admin"
+      }
+    },
+    "batches": {
+      "346d2f27-4061-4c60-b6c8-a0da17fcc85c": {
+        "quality": 4,
+        "updated_at": "2026-10-18T19:12:01.941Z"
+      },
+      "4335f480-e87d-479d-894a-2420e0c080e7": {
+        "quality": 4,
+        "updated_at": "2026-10-18T19:12:01.530Z"
+      },
+      "773db15b-1ef1-40c5-840f-ac92f58152bd": {
+        "quality": 4,
+        "updated_at": "2026-10-18T19:12:01.664Z"
+      }
+    }
+  },
+  "created": {},
+  "deleted": {
+    "strikes": [
+      "0116e744-6141-4cb7-b98c-9ae87bc05db5"
+    ]
+  }
+}

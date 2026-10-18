@@ -1,37 +1,44 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AppConfig, KaiaBatch, KaiaPersonProfile } from '../types/index.ts';
+import { AppConfig, KaiaBatch, KaiaClient, KaiaPersonProfile, KaiaProduct } from '../types/index.ts';
 import { formatToPKT } from '../utils/time.ts';
 import { safeParseJson } from '../utils/safeJson.ts';
 
 interface BatchesTabProps {
   config: AppConfig;
+  onOpenPortalStudio?: () => void;
 }
 
 const STATUS_OPTIONS = [
-  { value: 'ready_to_create', label: 'Ready to Create', color: 'bg-sky-500/15 text-sky-300 border-sky-500/30' },
-  { value: 'creating', label: 'Creating', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' },
-  { value: 'in_review', label: 'In Review', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  { value: 'approved', label: 'Approved', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-  { value: 'client_approved', label: 'Client Approved', color: 'bg-teal-500/15 text-teal-300 border-teal-500/30' },
-  { value: 'discarded', label: 'Discarded', color: 'bg-rose-500/15 text-rose-300 border-rose-500/30' },
+  { value: 'new', label: 'New', color: 'text-slate-300' },
+  { value: 'ready_to_create', label: 'Ready to Create', color: 'text-sky-300' },
+  { value: 'creating', label: 'Creating', color: 'text-indigo-300' },
+  { value: 'in_review', label: 'In Review', color: 'text-amber-300' },
+  { value: 'needs_edits', label: 'Needs Edits', color: 'text-orange-300' },
+  { value: 'approved', label: 'Approved', color: 'text-emerald-300' },
+  { value: 'client_approved', label: 'Client Approved', color: 'text-teal-300' },
+  { value: 'discarded', label: 'Discarded', color: 'text-rose-300' },
 ];
 
-function getStatusBadge(status: string) {
+function getStatusInfo(status: string) {
   const found = STATUS_OPTIONS.find((s) => s.value === status);
   if (found) return found;
   return {
     value: status,
     label: status ? status.replace(/_/g, ' ') : 'Unknown',
-    color: 'bg-slate-800 text-slate-300 border-slate-700',
+    color: 'text-slate-300',
   };
 }
 
-export function BatchesTab({ config }: BatchesTabProps) {
+export function BatchesTab({ config, onOpenPortalStudio }: BatchesTabProps) {
   const accounts = config.accounts || [];
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || '');
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId) || accounts[0];
 
+  const [scope, setScope] = useState<'assigned' | 'all'>('assigned');
   const [batches, setBatches] = useState<KaiaBatch[]>([]);
+  const [allPeople, setAllPeople] = useState<KaiaPersonProfile[]>([]);
+  const [clients, setClients] = useState<KaiaClient[]>([]);
+  const [products, setProducts] = useState<KaiaProduct[]>([]);
   const [person, setPerson] = useState<KaiaPersonProfile | null>(null);
   const [resolvedPersonId, setResolvedPersonId] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -48,20 +55,15 @@ export function BatchesTab({ config }: BatchesTabProps) {
   const [bulkRating, setBulkRating] = useState<number>(5);
   const [bulkResetRevisions, setBulkResetRevisions] = useState<boolean>(false);
   const [bulkStatus, setBulkStatus] = useState<string>('');
+  const [bulkOutcome, setBulkOutcome] = useState<string>('');
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   // Single row updating state
   const [updatingBatchId, setUpdatingBatchId] = useState<string | null>(null);
 
-  // Detailed Edit Modal state
+  // Comprehensive Edit Modal state (every batch field editable)
   const [editingBatch, setEditingBatch] = useState<KaiaBatch | null>(null);
-  const [editQuality, setEditQuality] = useState<string>('5');
-  const [editStatus, setEditStatus] = useState<string>('approved');
-  const [editInternalRev, setEditInternalRev] = useState<number>(0);
-  const [editClientRev, setEditClientRev] = useState<number>(0);
-  const [editMinutes, setEditMinutes] = useState<string>('');
-  const [editHooks, setEditHooks] = useState<string>('');
-  const [editCreativeUrl, setEditCreativeUrl] = useState<string>('');
+  const [editForm, setEditForm] = useState<Record<string, any>>({});
 
   const fetchBatches = async () => {
     if (!selectedAccount) return;
@@ -75,7 +77,8 @@ export function BatchesTab({ config }: BatchesTabProps) {
         personId: selectedAccount.personId || '',
         email: selectedAccount.kaiaEmail || '',
         password: selectedAccount.kaiaPassword || '',
-        limit: '250',
+        scope,
+        limit: '300',
       });
 
       const headers: Record<string, string> = {};
@@ -86,10 +89,13 @@ export function BatchesTab({ config }: BatchesTabProps) {
       const res = await fetch(`/api/batches?${params.toString()}`, { headers });
       const data = await safeParseJson(res);
       if (!res.ok || !data.success) {
-        throw new Error(data.error || `Failed to load assigned batches (HTTP ${res.status})`);
+        throw new Error(data.error || `Failed to load batches (HTTP ${res.status})`);
       }
 
       setBatches(Array.isArray(data.batches) ? data.batches : []);
+      setAllPeople(Array.isArray(data.allPeople) ? data.allPeople : []);
+      setClients(Array.isArray(data.clients) ? data.clients : []);
+      setProducts(Array.isArray(data.products) ? data.products : []);
       setPerson(data.person || null);
       setResolvedPersonId(data.personId || selectedAccount.personId || '');
       setSelectedBatchIds({});
@@ -101,8 +107,8 @@ export function BatchesTab({ config }: BatchesTabProps) {
   };
 
   useEffect(() => {
-    fetchBatches();
-  }, [selectedAccountId, config.supabaseUrl]);
+    void fetchBatches();
+  }, [selectedAccountId, scope, config.supabaseUrl]);
 
   // Filtered batches
   const filteredBatches = useMemo(() => {
@@ -163,6 +169,21 @@ export function BatchesTab({ config }: BatchesTabProps) {
     };
   }, [batches]);
 
+  const peopleNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of allPeople) {
+      if (p.id && p.name) map.set(p.id, p.name);
+    }
+    if (person?.id && person?.name) map.set(person.id, person.name);
+    return map;
+  }, [allPeople, person]);
+
+  const getPersonDisplayName = (id?: string | null, fallbackName?: string | null) => {
+    if (fallbackName && fallbackName.trim()) return fallbackName;
+    if (!id) return null;
+    return peopleNameMap.get(id) || null;
+  };
+
   // Determine roles assigned to current person on a batch
   const getAssignedRoles = (batch: KaiaBatch) => {
     const pid = resolvedPersonId || selectedAccount?.personId;
@@ -173,21 +194,13 @@ export function BatchesTab({ config }: BatchesTabProps) {
     if (batch.scriptwriter_id === pid) roles.push('Scriptwriter');
     if (batch.qc_id === pid) roles.push('QC');
     if (batch.media_buyer_id === pid) roles.push('Media Buyer');
-    return roles.length > 0 ? roles : ['Assigned'];
+    return roles.length > 0 ? roles : ['Portal Batch'];
   };
 
-  // Quick update single batch rating (or revisions)
+  // Quick update single batch rating or fields
   const handleQuickUpdateBatch = async (
     batch: KaiaBatch,
-    updates: {
-      quality?: number | null;
-      internal_revisions?: number;
-      client_revisions?: number;
-      status?: string;
-      minutes?: number | null;
-      hooks?: number | null;
-      creative_url?: string | null;
-    }
+    updates: Record<string, any>
   ) => {
     if (!selectedAccount) return;
     setUpdatingBatchId(batch.id);
@@ -237,7 +250,9 @@ export function BatchesTab({ config }: BatchesTabProps) {
 
       setFeedback({
         type: 'success',
-        text: `Updated "${batch.name}"${ratingLabel ? ` rating to ${ratingLabel}` : ''} in KAIA Supabase.`,
+        text: `Updated "${updates.name || batch.name}"${ratingLabel ? ` rating to ${ratingLabel}` : ''} (${
+          data.mode === 'direct_db' ? 'Direct Supabase DB' : 'Saved & Force-Overwritten'
+        }).`,
       });
     } catch (err: any) {
       setFeedback({
@@ -277,6 +292,9 @@ export function BatchesTab({ config }: BatchesTabProps) {
       if (bulkStatus) {
         payload.status = bulkStatus;
       }
+      if (bulkOutcome) {
+        payload.outcome = bulkOutcome;
+      }
 
       const res = await fetch('/api/batches/update', {
         method: 'POST',
@@ -303,6 +321,7 @@ export function BatchesTab({ config }: BatchesTabProps) {
             quality: bulkRating === 0 ? null : bulkRating,
             ...(bulkResetRevisions ? { internal_revisions: 0, client_revisions: 0 } : {}),
             ...(bulkStatus ? { status: bulkStatus } : {}),
+            ...(bulkOutcome ? { outcome: bulkOutcome === 'none' ? null : bulkOutcome } : {}),
             ...(fromServer || {}),
           };
         })
@@ -337,25 +356,75 @@ export function BatchesTab({ config }: BatchesTabProps) {
 
   const openEditModal = (batch: KaiaBatch) => {
     setEditingBatch(batch);
-    setEditQuality(batch.quality !== null && batch.quality !== undefined ? String(batch.quality) : '');
-    setEditStatus(batch.status || 'approved');
-    setEditInternalRev(batch.internal_revisions ?? 0);
-    setEditClientRev(batch.client_revisions ?? 0);
-    setEditMinutes(batch.minutes !== null && batch.minutes !== undefined ? String(batch.minutes) : '');
-    setEditHooks(batch.hooks !== null && batch.hooks !== undefined ? String(batch.hooks) : '');
-    setEditCreativeUrl(batch.creative_url || '');
+    setEditForm({
+      name: batch.name || '',
+      format: batch.format || '',
+      quality: batch.quality !== null && batch.quality !== undefined ? String(batch.quality) : '',
+      status: batch.status || 'approved',
+      outcome: batch.outcome || '',
+      pay_status: batch.pay_status || '',
+      paid_period: batch.paid_period || '',
+      language: batch.language || 'English',
+      internal_revisions: batch.internal_revisions ?? 0,
+      client_revisions: batch.client_revisions ?? 0,
+      minutes: batch.minutes !== null && batch.minutes !== undefined ? String(batch.minutes) : '',
+      hooks: batch.hooks !== null && batch.hooks !== undefined ? String(batch.hooks) : '',
+      spend: batch.spend !== null && batch.spend !== undefined ? String(batch.spend) : '',
+      roas: batch.roas !== null && batch.roas !== undefined ? String(batch.roas) : '',
+      hook_rate: batch.hook_rate !== null && batch.hook_rate !== undefined ? String(batch.hook_rate) : '',
+      purchases: batch.purchases !== null && batch.purchases !== undefined ? String(batch.purchases) : '',
+      client_id: batch.client_id || '',
+      product_id: batch.product_id || '',
+      creator_id: batch.creator_id || '',
+      editor_id: batch.editor_id || '',
+      scriptwriter_id: batch.scriptwriter_id || '',
+      qc_id: batch.qc_id || '',
+      media_buyer_id: batch.media_buyer_id || '',
+      brief_url: batch.brief_url || '',
+      creative_url: batch.creative_url || '',
+      script_url_2: batch.script_url_2 || '',
+      product_url: batch.product_url || '',
+      ad_name_in_platform: batch.ad_name_in_platform || '',
+      instructions: batch.instructions || '',
+      due_at: batch.due_at || '',
+      approved_at: batch.approved_at || '',
+    });
   };
 
   const handleSaveModalEdit = async () => {
     if (!editingBatch) return;
     await handleQuickUpdateBatch(editingBatch, {
-      quality: editQuality === '' ? null : Number(editQuality),
-      status: editStatus,
-      internal_revisions: Number(editInternalRev) || 0,
-      client_revisions: Number(editClientRev) || 0,
-      minutes: editMinutes === '' ? null : Number(editMinutes),
-      hooks: editHooks === '' ? null : Number(editHooks),
-      creative_url: editCreativeUrl.trim() || null,
+      name: editForm.name,
+      format: editForm.format || null,
+      quality: editForm.quality === '' ? null : Number(editForm.quality),
+      status: editForm.status,
+      outcome: editForm.outcome || null,
+      pay_status: editForm.pay_status || null,
+      paid_period: editForm.paid_period || null,
+      language: editForm.language || null,
+      internal_revisions: Number(editForm.internal_revisions) || 0,
+      client_revisions: Number(editForm.client_revisions) || 0,
+      minutes: editForm.minutes === '' ? null : Number(editForm.minutes),
+      hooks: editForm.hooks === '' ? null : Number(editForm.hooks),
+      spend: editForm.spend === '' ? null : Number(editForm.spend),
+      roas: editForm.roas === '' ? null : Number(editForm.roas),
+      hook_rate: editForm.hook_rate === '' ? null : Number(editForm.hook_rate),
+      purchases: editForm.purchases === '' ? null : Number(editForm.purchases),
+      client_id: editForm.client_id || null,
+      product_id: editForm.product_id || null,
+      creator_id: editForm.creator_id || null,
+      editor_id: editForm.editor_id || null,
+      scriptwriter_id: editForm.scriptwriter_id || null,
+      qc_id: editForm.qc_id || null,
+      media_buyer_id: editForm.media_buyer_id || null,
+      brief_url: editForm.brief_url || null,
+      creative_url: editForm.creative_url || null,
+      script_url_2: editForm.script_url_2 || null,
+      product_url: editForm.product_url || null,
+      ad_name_in_platform: editForm.ad_name_in_platform || null,
+      instructions: editForm.instructions || null,
+      due_at: editForm.due_at || null,
+      approved_at: editForm.approved_at || null,
     });
     setEditingBatch(null);
   };
@@ -366,25 +435,55 @@ export function BatchesTab({ config }: BatchesTabProps) {
       <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <span className="px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                KAIA Batches &amp; Quality Ratings
-              </span>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-indigo-300 font-medium">
+              <span>KAIA Batches &amp; Quality Ratings</span>
               {person && (
-                <span className="px-2.5 py-0.5 text-[11px] font-mono rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30">
-                  {person.name} · {person.role} · Level {person.current_level ?? 1}
-                </span>
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-emerald-300 font-mono">
+                    {person.name} · {person.role} · Level {person.current_level ?? 1} · Score{' '}
+                    {person.current_score ?? 0}
+                  </span>
+                </>
               )}
             </div>
-            <h1 className="text-xl font-bold text-white tracking-tight mt-2">
-              Assigned Batches &amp; Batch Rating Updater
+            <h1 className="text-xl font-bold text-white tracking-tight mt-1.5">
+              Batches &amp; Full Rating Customizer
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              View all creative batches assigned to your account as Creator, Editor, Scriptwriter, or QC, and update batch ratings (<code className="text-indigo-300 font-mono">quality</code> 1★–5★), revisions, or approval status directly in KAIA Supabase.
+              View and customize batches assigned to your account or across the entire{' '}
+              <code className="text-indigo-300 font-mono">portal.trykaia.com</code> workspace — edit
+              ratings (1★–5★), revisions, minutes, hooks, outcomes, ROAS, and assignments.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* Scope Toggle: Assigned vs All Portal Batches */}
+            <div className="flex items-center gap-1 p-1 bg-slate-950 border border-slate-800 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setScope('assigned')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  scope === 'assigned'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Assigned to Me
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  scope === 'all'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All Portal Batches
+              </button>
+            </div>
+
             <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
               <span className="text-xs text-slate-400 font-medium">Account:</span>
               <select
@@ -400,12 +499,22 @@ export function BatchesTab({ config }: BatchesTabProps) {
               </select>
             </div>
 
+            {onOpenPortalStudio && (
+              <button
+                type="button"
+                onClick={onOpenPortalStudio}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors cursor-pointer"
+              >
+                Open Full Portal Studio
+              </button>
+            )}
+
             <button
               onClick={fetchBatches}
               disabled={loading}
               className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer disabled:opacity-50"
             >
-              {loading ? 'Refreshing...' : 'Refresh Batches'}
+              {loading ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -413,7 +522,9 @@ export function BatchesTab({ config }: BatchesTabProps) {
         {/* Summary KPI Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 pt-5">
           <div className="bg-slate-950/80 border border-slate-800/90 rounded-xl p-4">
-            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Assigned Batches</span>
+            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+              {scope === 'all' ? 'Portal Batches' : 'Assigned Batches'}
+            </span>
             <div className="text-2xl font-bold text-white mt-1 font-mono">{stats.total}</div>
             <span className="text-[11px] text-slate-400 mt-1 block">
               {stats.approvedCount} Approved / Client Approved
@@ -455,7 +566,10 @@ export function BatchesTab({ config }: BatchesTabProps) {
               {stats.totalMinutes.toFixed(1)} <span className="text-xs font-normal text-slate-400">min</span>
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              ID: <code className="font-mono text-slate-300">{resolvedPersonId.slice(0, 8)}...</code>
+              Creator:{' '}
+              <span className="font-semibold text-emerald-300">
+                {person?.name || selectedAccount?.label || 'Studio Account'}
+              </span>
             </span>
           </div>
         </div>
@@ -492,10 +606,10 @@ export function BatchesTab({ config }: BatchesTabProps) {
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                Bulk Rating Updater
+                Bulk Rating &amp; Batch Customizer
               </span>
-              <span className="px-2 py-0.5 text-[11px] font-mono rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                {selectedIdsList.length} selected
+              <span className="text-[11px] font-mono text-indigo-300">
+                ({selectedIdsList.length} selected)
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -542,7 +656,6 @@ export function BatchesTab({ config }: BatchesTabProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Target Rating */}
             <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
               <span className="text-xs text-slate-400">Set Rating:</span>
               <select
@@ -559,7 +672,6 @@ export function BatchesTab({ config }: BatchesTabProps) {
               </select>
             </div>
 
-            {/* Optional Status Override */}
             <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
               <span className="text-xs text-slate-400">Status:</span>
               <select
@@ -567,7 +679,7 @@ export function BatchesTab({ config }: BatchesTabProps) {
                 onChange={(e) => setBulkStatus(e.target.value)}
                 className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer"
               >
-                <option value="" className="bg-slate-900 text-slate-400">Keep Current Status</option>
+                <option value="" className="bg-slate-900 text-slate-400">Keep Current</option>
                 {STATUS_OPTIONS.map((st) => (
                   <option key={st.value} value={st.value} className="bg-slate-900 text-white">
                     {st.label}
@@ -576,7 +688,21 @@ export function BatchesTab({ config }: BatchesTabProps) {
               </select>
             </div>
 
-            {/* Reset revisions checkbox */}
+            <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
+              <span className="text-xs text-slate-400">Outcome:</span>
+              <select
+                value={bulkOutcome}
+                onChange={(e) => setBulkOutcome(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value="" className="bg-slate-900 text-slate-400">Keep Current</option>
+                <option value="winner" className="bg-slate-900 text-emerald-300">Winner</option>
+                <option value="testing" className="bg-slate-900 text-sky-300">Testing</option>
+                <option value="loser" className="bg-slate-900 text-rose-300">Loser</option>
+                <option value="none" className="bg-slate-900 text-slate-400">Clear Outcome</option>
+              </select>
+            </div>
+
             <label className="flex items-center gap-2 text-xs text-slate-300 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -595,13 +721,13 @@ export function BatchesTab({ config }: BatchesTabProps) {
             >
               {isBulkUpdating
                 ? 'Updating Batches...'
-                : `Update ${selectedIdsList.length || ''} Selected Batch(es)`}
+                : `Update ${selectedIdsList.length || ''} Selected`}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Filter & Search Bar + Assigned Batches Table */}
+      {/* Filter & Search Bar + Batches Table */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="relative flex-1 max-w-md">
@@ -670,7 +796,7 @@ export function BatchesTab({ config }: BatchesTabProps) {
                 </th>
                 <th className="py-3.5 px-3">Batch &amp; Links</th>
                 <th className="py-3.5 px-3">Client &amp; Role</th>
-                <th className="py-3.5 px-3">Status</th>
+                <th className="py-3.5 px-3">Status &amp; Outcome</th>
                 <th className="py-3.5 px-3">Metrics &amp; Revisions</th>
                 <th className="py-3.5 px-3">Batch Rating (Click to Update)</th>
                 <th className="py-3.5 pl-3 pr-5 text-right">Actions</th>
@@ -680,7 +806,7 @@ export function BatchesTab({ config }: BatchesTabProps) {
               {loading && batches.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400">
-                    Loading assigned batches from KAIA Supabase...
+                    Loading batches from KAIA Supabase...
                   </td>
                 </tr>
               ) : filteredBatches.length === 0 ? (
@@ -691,10 +817,11 @@ export function BatchesTab({ config }: BatchesTabProps) {
                 </tr>
               ) : (
                 filteredBatches.map((batch) => {
-                  const statusBadge = getStatusBadge(batch.status);
+                  const statusInfo = getStatusInfo(batch.status);
                   const roles = getAssignedRoles(batch);
                   const isRowUpdating = updatingBatchId === batch.id;
                   const isSelected = Boolean(selectedBatchIds[batch.id]);
+                  const hasOverride = (batch._overriddenFields?.length || 0) > 0;
 
                   return (
                     <tr
@@ -719,13 +846,17 @@ export function BatchesTab({ config }: BatchesTabProps) {
 
                       {/* Batch Name, Format, Dates & Links */}
                       <td className="py-3.5 px-3 align-middle">
-                        <div className="font-semibold text-white text-sm">{batch.name}</div>
-                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-400">
-                          {batch.format && (
-                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                              {batch.format}
+                        <div className="font-semibold text-white text-sm flex items-center gap-2">
+                          <span>{batch.name}</span>
+                          {hasOverride && (
+                            <span className="text-[11px] font-normal text-amber-300">
+                              · Customized
                             </span>
                           )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-400">
+                          {batch.format && <span className="font-mono text-slate-300">{batch.format}</span>}
+                          <span aria-hidden="true">·</span>
                           <span>Created: {formatToPKT(batch.created_at).split(',')[0]}</span>
                           {batch.brief_url && (
                             <a
@@ -753,32 +884,45 @@ export function BatchesTab({ config }: BatchesTabProps) {
                       {/* Client & Assigned Role */}
                       <td className="py-3.5 px-3 align-middle">
                         <div className="font-medium text-slate-200">
-                          {batch.clients?.name || 'Unassigned Client'}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1 mt-1">
-                          {roles.map((r) => (
-                            <span
-                              key={r}
-                              className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"
-                            >
-                              {r}
+                          {batch.clients?.name || (batch as any).client_name || 'Unassigned Client'}
+                          {(batch.products?.name || (batch as any).product_name) && (
+                            <span className="text-slate-400 font-normal">
+                              {' '}
+                              · {batch.products?.name || (batch as any).product_name}
                             </span>
-                          ))}
+                          )}
+                        </div>
+                        <div className="text-[11px] text-indigo-300 mt-0.5">
+                          {roles.join(' · ')}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {getPersonDisplayName(batch.creator_id, (batch as any).creator_name) && (
+                            <span>
+                              Creator: {getPersonDisplayName(batch.creator_id, (batch as any).creator_name)}
+                            </span>
+                          )}
+                          {getPersonDisplayName(batch.qc_id, (batch as any).qc_name) && (
+                            <span>
+                              {' '}
+                              · QC: {getPersonDisplayName(batch.qc_id, (batch as any).qc_name)}
+                            </span>
+                          )}
                         </div>
                       </td>
 
-                      {/* Status */}
+                      {/* Status & Outcome */}
                       <td className="py-3.5 px-3 align-middle">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold border capitalize ${statusBadge.color}`}
-                        >
-                          {statusBadge.label}
-                        </span>
+                        <div className={`font-semibold capitalize ${statusInfo.color}`}>
+                          {statusInfo.label}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          Outcome: {batch.outcome || '—'} · Pay: {batch.pay_status || 'unpaid'}
+                        </div>
                       </td>
 
                       {/* Metrics & Revisions */}
                       <td className="py-3.5 px-3 align-middle">
-                        <div className="flex items-center gap-3 text-slate-300 font-mono text-[11px]">
+                        <div className="flex items-center gap-2 text-slate-300 font-mono text-[11px]">
                           <span>
                             {batch.minutes ? `${Number(batch.minutes).toFixed(2)}m` : '— min'}
                           </span>
@@ -788,7 +932,7 @@ export function BatchesTab({ config }: BatchesTabProps) {
                         <div className="flex items-center gap-2 mt-1 text-[11px]">
                           <span
                             className={
-                              batch.internal_revisions > 0
+                              (batch.internal_revisions ?? 0) > 0
                                 ? 'text-amber-300 font-medium'
                                 : 'text-slate-400'
                             }
@@ -798,14 +942,14 @@ export function BatchesTab({ config }: BatchesTabProps) {
                           <span className="text-slate-600">·</span>
                           <span
                             className={
-                              batch.client_revisions > 0
+                              (batch.client_revisions ?? 0) > 0
                                 ? 'text-rose-300 font-medium'
                                 : 'text-slate-400'
                             }
                           >
                             Client Rev: {batch.client_revisions ?? 0}
                           </span>
-                          {(batch.internal_revisions > 0 || batch.client_revisions > 0) && (
+                          {((batch.internal_revisions ?? 0) > 0 || (batch.client_revisions ?? 0) > 0) && (
                             <button
                               type="button"
                               disabled={isRowUpdating}
@@ -816,7 +960,6 @@ export function BatchesTab({ config }: BatchesTabProps) {
                                 })
                               }
                               className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-emerald-300 border border-slate-700 cursor-pointer"
-                              title="Reset internal and client revisions to 0"
                             >
                               Reset 0
                             </button>
@@ -890,7 +1033,7 @@ export function BatchesTab({ config }: BatchesTabProps) {
                             onClick={() => openEditModal(batch)}
                             className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
                           >
-                            Edit
+                            Edit All Fields
                           </button>
                         </div>
                       </td>
@@ -903,15 +1046,17 @@ export function BatchesTab({ config }: BatchesTabProps) {
         </div>
       </div>
 
-      {/* Edit Batch Details Modal */}
+      {/* Full Batch Customizer Modal */}
       {editingBatch && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-white">Edit Batch &amp; Rating</h3>
+                <h3 className="text-base font-bold text-white">
+                  Full Batch Customizer — {editingBatch.name}
+                </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {editingBatch.name} · {editingBatch.clients?.name || 'Client'}
+                  Edit any property, assignment, rating, metric, or link for this batch.
                 </p>
               </div>
               <button
@@ -922,14 +1067,35 @@ export function BatchesTab({ config }: BatchesTabProps) {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-5 overflow-y-auto flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div className="sm:col-span-2">
+                <label className="block text-slate-400 font-medium mb-1">Batch Name</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
               <div>
-                <label className="block text-slate-400 font-medium mb-1.5">
+                <label className="block text-slate-400 font-medium mb-1">Format</label>
+                <input
+                  type="text"
+                  value={editForm.format}
+                  onChange={(e) => setEditForm({ ...editForm, format: e.target.value })}
+                  placeholder="ugc_talking_head"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">
                   Batch Rating (quality)
                 </label>
                 <select
-                  value={editQuality}
-                  onChange={(e) => setEditQuality(e.target.value)}
+                  value={editForm.quality}
+                  onChange={(e) => setEditForm({ ...editForm, quality: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-amber-300 font-bold focus:outline-none focus:border-indigo-500"
                 >
                   <option value="">Unrated (null)</option>
@@ -942,10 +1108,10 @@ export function BatchesTab({ config }: BatchesTabProps) {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1.5">Batch Status</label>
+                <label className="block text-slate-400 font-medium mb-1">Status</label>
                 <select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value)}
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 >
                   {STATUS_OPTIONS.map((st) => (
@@ -957,72 +1123,265 @@ export function BatchesTab({ config }: BatchesTabProps) {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1.5">
-                  Internal Revisions
-                </label>
+                <label className="block text-slate-400 font-medium mb-1">Outcome</label>
+                <select
+                  value={editForm.outcome}
+                  onChange={(e) => setEditForm({ ...editForm, outcome: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">None</option>
+                  <option value="winner">Winner</option>
+                  <option value="testing">Testing</option>
+                  <option value="loser">Loser</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Internal Revisions</label>
                 <input
                   type="number"
                   min={0}
-                  value={editInternalRev}
-                  onChange={(e) => setEditInternalRev(Number(e.target.value))}
+                  value={editForm.internal_revisions}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, internal_revisions: Number(e.target.value) })
+                  }
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1.5">
-                  Client Revisions
-                </label>
+                <label className="block text-slate-400 font-medium mb-1">Client Revisions</label>
                 <input
                   type="number"
                   min={0}
-                  value={editClientRev}
-                  onChange={(e) => setEditClientRev(Number(e.target.value))}
+                  value={editForm.client_revisions}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, client_revisions: Number(e.target.value) })
+                  }
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1.5">
-                  Duration (Minutes)
-                </label>
+                <label className="block text-slate-400 font-medium mb-1">Duration (Minutes)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={editMinutes}
-                  onChange={(e) => setEditMinutes(e.target.value)}
-                  placeholder="e.g. 1.75"
+                  value={editForm.minutes}
+                  onChange={(e) => setEditForm({ ...editForm, minutes: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1.5">Hooks Count</label>
+                <label className="block text-slate-400 font-medium mb-1">Hooks Count</label>
                 <input
                   type="number"
                   min={0}
-                  value={editHooks}
-                  onChange={(e) => setEditHooks(e.target.value)}
-                  placeholder="e.g. 3"
+                  value={editForm.hooks}
+                  onChange={(e) => setEditForm({ ...editForm, hooks: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-slate-400 font-medium mb-1.5">
-                  Creative / Frame.io URL
-                </label>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Pay Status</label>
                 <input
-                  type="url"
-                  value={editCreativeUrl}
-                  onChange={(e) => setEditCreativeUrl(e.target.value)}
-                  placeholder="https://f.io/..."
+                  type="text"
+                  value={editForm.pay_status}
+                  onChange={(e) => setEditForm({ ...editForm, pay_status: e.target.value })}
+                  placeholder="paid / unpaid"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Spend ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editForm.spend}
+                  onChange={(e) => setEditForm({ ...editForm, spend: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">ROAS</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editForm.roas}
+                  onChange={(e) => setEditForm({ ...editForm, roas: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Hook Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editForm.hook_rate}
+                  onChange={(e) => setEditForm({ ...editForm, hook_rate: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Purchases</label>
+                <input
+                  type="number"
+                  value={editForm.purchases}
+                  onChange={(e) => setEditForm({ ...editForm, purchases: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Client Brand</label>
+                <select
+                  value={editForm.client_id}
+                  onChange={(e) => setEditForm({ ...editForm, client_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Product</label>
+                <select
+                  value={editForm.product_id}
+                  onChange={(e) => setEditForm({ ...editForm, product_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">No Product</option>
+                  {products.map((pr) => (
+                    <option key={pr.id} value={pr.id}>
+                      {pr.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Creator</label>
+                <select
+                  value={editForm.creator_id}
+                  onChange={(e) => setEditForm({ ...editForm, creator_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {allPeople.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Editor</label>
+                <select
+                  value={editForm.editor_id}
+                  onChange={(e) => setEditForm({ ...editForm, editor_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {allPeople.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Scriptwriter</label>
+                <select
+                  value={editForm.scriptwriter_id}
+                  onChange={(e) => setEditForm({ ...editForm, scriptwriter_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {allPeople.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">QC Reviewer</label>
+                <select
+                  value={editForm.qc_id}
+                  onChange={(e) => setEditForm({ ...editForm, qc_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {allPeople.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">Media Buyer</label>
+                <select
+                  value={editForm.media_buyer_id}
+                  onChange={(e) => setEditForm({ ...editForm, media_buyer_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {allPeople.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-slate-400 font-medium mb-1">Brief URL</label>
+                <input
+                  type="text"
+                  value={editForm.brief_url}
+                  onChange={(e) => setEditForm({ ...editForm, brief_url: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-slate-400 font-medium mb-1">Creative / Frame.io URL</label>
+                <input
+                  type="text"
+                  value={editForm.creative_url}
+                  onChange={(e) => setEditForm({ ...editForm, creative_url: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-slate-400 font-medium mb-1">Instructions / Notes</label>
+                <textarea
+                  rows={2}
+                  value={editForm.instructions}
+                  onChange={(e) => setEditForm({ ...editForm, instructions: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+            <div className="p-5 border-t border-slate-800 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setEditingBatch(null)}
@@ -1034,9 +1393,9 @@ export function BatchesTab({ config }: BatchesTabProps) {
                 type="button"
                 onClick={handleSaveModalEdit}
                 disabled={updatingBatchId === editingBatch.id}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer disabled:opacity-50"
+                className="px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer disabled:opacity-50"
               >
-                {updatingBatchId === editingBatch.id ? 'Saving...' : 'Save Changes to Supabase'}
+                {updatingBatchId === editingBatch.id ? 'Saving...' : 'Save Batch Customizations'}
               </button>
             </div>
           </div>

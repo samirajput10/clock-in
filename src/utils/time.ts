@@ -3,10 +3,10 @@ import { AppConfig, KaiaAccount } from '../types/index.ts';
 export const DEFAULT_ACCOUNTS: KaiaAccount[] = [
   {
     id: 'acc-1',
-    label: 'Account 1 (Primary)',
+    label: 'samiullah',
     enabled: true,
     personId: '3a38a9c0-f965-4fde-8c10-84a07dff2901',
-    kaiaEmail: '',
+    kaiaEmail: 'halmarrsami@gmail.com',
     kaiaPassword: '',
     manualToken: '',
     lat: 31.45037392501653,
@@ -15,10 +15,10 @@ export const DEFAULT_ACCOUNTS: KaiaAccount[] = [
   },
   {
     id: 'acc-2',
-    label: 'Account 2',
+    label: 'Mansoor Irshad',
     enabled: true,
-    personId: '',
-    kaiaEmail: '',
+    personId: 'f6ea1e81-a9c8-4500-a61d-4e290f24c8c0',
+    kaiaEmail: 'ranaali96688@gmail.com',
     kaiaPassword: '',
     manualToken: '',
     lat: 31.45037392501653,
@@ -32,7 +32,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsdnNtb2NrdnVmZ2JxcGVlcGJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NDU4OTQsImV4cCI6MjA5ODIyMTg5NH0.X0guVvHPpfLegMlT2Xu24XBZoFJEqztluUJE0b6G1gY',
   accounts: DEFAULT_ACCOUNTS,
   personId: '3a38a9c0-f965-4fde-8c10-84a07dff2901',
-  kaiaEmail: '',
+  kaiaEmail: 'halmarrsami@gmail.com',
   kaiaPassword: '',
   manualToken: '',
   lat: 31.45037392501653,
@@ -79,10 +79,10 @@ export function loadStoredConfig(): AppConfig {
       parsed.accounts = [
         {
           id: 'acc-1',
-          label: 'Account 1 (Primary)',
+          label: 'samiullah',
           enabled: true,
           personId: parsed.personId || DEFAULT_CONFIG.personId,
-          kaiaEmail: parsed.kaiaEmail || '',
+          kaiaEmail: parsed.kaiaEmail || 'halmarrsami@gmail.com',
           kaiaPassword: parsed.kaiaPassword || '',
           manualToken: parsed.manualToken || '',
           lat: Number(parsed.lat ?? DEFAULT_CONFIG.lat),
@@ -91,10 +91,10 @@ export function loadStoredConfig(): AppConfig {
         },
         {
           id: 'acc-2',
-          label: 'Account 2',
+          label: 'Mansoor Irshad',
           enabled: true,
-          personId: '',
-          kaiaEmail: '',
+          personId: 'f6ea1e81-a9c8-4500-a61d-4e290f24c8c0',
+          kaiaEmail: 'ranaali96688@gmail.com',
           kaiaPassword: '',
           manualToken: '',
           lat: Number(parsed.lat ?? DEFAULT_CONFIG.lat),
@@ -103,6 +103,18 @@ export function loadStoredConfig(): AppConfig {
         },
       ];
       mutated = true;
+    } else {
+      // Upgrade generic Account 1 / Account 2 labels to real names
+      for (const acc of parsed.accounts) {
+        if (acc.id === 'acc-1' && (!acc.label || acc.label.startsWith('Account 1'))) {
+          acc.label = 'samiullah';
+          mutated = true;
+        }
+        if (acc.id === 'acc-2' && (!acc.label || acc.label.startsWith('Account 2'))) {
+          acc.label = 'Mansoor Irshad';
+          mutated = true;
+        }
+      }
     }
     if (mutated) {
       localStorage.setItem('kaia_automator_config', JSON.stringify({ ...DEFAULT_CONFIG, ...parsed }));
@@ -186,7 +198,7 @@ export function pktToUtcIso(workDate: string, pktTime: string): string {
 /**
  * Format ISO string into readable PKT string
  */
-export function formatToPKT(isoString: string): string {
+export function formatToPKT(isoString?: string | null): string {
   if (!isoString) return '—';
   try {
     const d = new Date(isoString);

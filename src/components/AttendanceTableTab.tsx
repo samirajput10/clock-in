@@ -13,7 +13,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
     config.accounts[0]?.id || 'acc-1'
   );
   const [records, setRecords] = useState<SupabaseAttendanceRecord[]>([]);
-  const [resolvedPersonId, setResolvedPersonId] = useState<string>('');
+  const [resolvedPersonName, setResolvedPersonName] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [updatingDate, setUpdatingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      setResolvedPersonId(data.personId || activeAccount.personId || '');
+      setResolvedPersonName(data.personName || activeAccount.label || '');
       setRecords(data.records || []);
     } catch (err: any) {
       setError(err.message || 'Failed to query attendance history from Supabase');
@@ -93,7 +93,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
       }
       setNotice({
         type: 'success',
-        text: `Updated ${workDate} to ${markLate ? 'Late (08:35 PKT)' : 'On-Time (08:00 PKT)'} for ${activeAccount.label}!`,
+        text: `Updated ${workDate} to ${markLate ? 'Late (08:35 PKT)' : 'On-Time (08:00 PKT)'} for ${resolvedPersonName || activeAccount.label}!`,
       });
       await fetchRecords();
     } catch (err: any) {
@@ -126,9 +126,9 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
           <h2 className="text-xl font-bold text-white">Live Supabase Attendance Table</h2>
           <p className="text-xs text-slate-400 mt-1">
             Directly queried records from table <code className="text-indigo-400">attendance</code> for{' '}
-            <span className="text-white font-semibold">{activeAccount?.label}</span>
-            {resolvedPersonId ? (
-              <span className="text-slate-400 font-mono"> ({resolvedPersonId.slice(0, 8)}…)</span>
+            <span className="text-white font-semibold">{resolvedPersonName || activeAccount?.label}</span>
+            {activeAccount?.kaiaEmail ? (
+              <span className="text-slate-400"> ({activeAccount.kaiaEmail})</span>
             ) : null}
           </p>
         </div>

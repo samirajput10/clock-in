@@ -268,10 +268,10 @@ export function SettingsTab({ config, onSaveConfig }: SettingsTabProps) {
                       className="flex items-center justify-between w-full text-left text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-2">
-                        <span>Advanced Account Options (Person ID, JWT Override, Custom Coordinates)</span>
-                        {account.personId && (
-                          <span className="font-mono text-[11px] text-indigo-400">
-                            · ID: {account.personId.slice(0, 8)}…
+                        <span>Advanced Account Options (Profile, JWT Override, Custom Coordinates)</span>
+                        {(testRes?.detectedPersonName || account.label) && (
+                          <span className="font-semibold text-[11px] text-indigo-400">
+                            · Profile: {testRes?.detectedPersonName || account.label}
                           </span>
                         )}
                       </div>
@@ -357,8 +357,8 @@ export function SettingsTab({ config, onSaveConfig }: SettingsTabProps) {
                           <>
                             <CheckCircle2 size={14} />
                             <span>
-                              Authentication Verified for {account.label}
-                              {testRes.detectedPersonId ? ` (Person ID: ${testRes.detectedPersonId})` : ''}
+                              Authentication Verified for {testRes.detectedPersonName || account.label}
+                              {testRes.userEmail ? ` (${testRes.userEmail})` : ''}
                             </span>
                           </>
                         ) : (

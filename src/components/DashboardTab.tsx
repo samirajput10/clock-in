@@ -21,6 +21,7 @@ interface DashboardTabProps {
   onOpenSettings: () => void;
   onOpenLateAbsent: () => void;
   onOpenBatches: () => void;
+  onOpenPortalStudio?: () => void;
 }
 
 export function DashboardTab({
@@ -34,6 +35,7 @@ export function DashboardTab({
   onOpenSettings,
   onOpenLateAbsent,
   onOpenBatches,
+  onOpenPortalStudio,
 }: DashboardTabProps) {
   const todayPKT = getPKTDate();
   const [selectedDate, setSelectedDate] = useState(todayPKT.dateString);
@@ -116,12 +118,20 @@ export function DashboardTab({
                 Active KAIA Accounts ({enabledAccounts.length} of {config.accounts.length} Enabled)
               </h2>
               <p className="text-xs text-slate-400">
-                Clock in all enabled accounts simultaneously or trigger individual accounts below
+                Clock in all enabled accounts simultaneously or customize any record in KAIA Portal Studio
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {onOpenPortalStudio && (
+              <button
+                onClick={onOpenPortalStudio}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Full Portal Studio (Edit Everything)
+              </button>
+            )}
             <button
               onClick={onOpenBatches}
               className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-semibold rounded-lg border border-emerald-500/30 transition-colors cursor-pointer"
@@ -146,7 +156,7 @@ export function DashboardTab({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {config.accounts.map((acc, idx) => {
-            const hasCreds = Boolean(acc.kaiaEmail.trim() || acc.manualToken.trim());
+            const hasCreds = Boolean(acc.kaiaEmail.trim() || (acc.manualToken || '').trim());
             return (
               <div
                 key={acc.id}
@@ -174,8 +184,8 @@ export function DashboardTab({
                     {acc.kaiaEmail || (acc.manualToken ? 'Using Manual JWT Token' : 'No email configured yet')}
                   </div>
 
-                  <div className="text-[11px] font-mono text-slate-500 truncate">
-                    ID: {acc.personId ? `${acc.personId.slice(0, 14)}…` : 'Auto-detects on login'}
+                  <div className="text-[11px] font-mono text-slate-400 truncate">
+                    Profile: {acc.label || 'KAIA Member'} · {acc.personId ? 'Linked' : 'Auto-detects on login'}
                   </div>
                 </div>
 
@@ -470,7 +480,7 @@ export function DashboardTab({
                         </span>
                       </td>
                       <td className="py-3 px-3 text-slate-400 truncate max-w-[180px]">
-                        {log.clockInIsoUTC.substring(11, 19)} UTC
+                        {(log.clockInIsoUTC || log.utcIsoTimestamp || '').substring(11, 19)} UTC
                       </td>
                       <td className="py-3 px-3 text-slate-400 tabular-nums">
                         {log.jitterAppliedMs ? `+${(log.jitterAppliedMs / 1000).toFixed(1)}s` : '0s'}

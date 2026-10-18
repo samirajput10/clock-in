@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Navbar, TabId } from './components/Navbar.tsx';
 import { ClockBanner } from './components/ClockBanner.tsx';
 import { DashboardTab } from './components/DashboardTab.tsx';
+import { KaiaPortalTab } from './components/KaiaPortalTab.tsx';
 import { BatchesTab } from './components/BatchesTab.tsx';
 import { LateAbsentTab } from './components/LateAbsentTab.tsx';
 import { ManualDispatchTab } from './components/ManualDispatchTab.tsx';
@@ -20,7 +21,7 @@ import { getPKTDate, loadStoredConfig, pktToUtcIso, saveStoredConfig } from './u
 import { safeParseJson } from './utils/safeJson.ts';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabId>('portal');
   const [config, setConfig] = useState<AppConfig>(loadStoredConfig);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
   const [cronStatus, setCronStatus] = useState<CronStatus | null>(null);
@@ -41,20 +42,37 @@ export default function App() {
     }
   };
 
-  // Hydrate server-saved accounts if local storage accounts have empty credentials
+  // Hydrate server-saved accounts and merge credentials so local state never wipes server passwords
   const hydrateOrSyncAccounts = async () => {
     try {
-      const hasLocalCreds = config.accounts.some((a) => a.kaiaEmail?.trim() && a.kaiaPassword?.trim());
-      if (!hasLocalCreds) {
-        const res = await fetch('/api/accounts');
-        if (res.ok) {
-          const data = await safeParseJson(res);
-          if (Array.isArray(data.accounts) && data.accounts.some((a: any) => a.kaiaEmail)) {
-            const merged: AppConfig = { ...config, accounts: data.accounts };
-            setConfig(merged);
-            saveStoredConfig(merged);
-            return;
-          }
+      const res = await fetch('/api/accounts');
+      if (res.ok) {
+        const data = await safeParseJson(res);
+        if (Array.isArray(data.accounts) && data.accounts.length > 0) {
+          const mergedAccounts = data.accounts.map((srvAcc: any, idx: number) => {
+            const loc =
+              config.accounts.find((a) => a.id === srvAcc.id) ||
+              config.accounts.find((a) => a.personId && a.personId === srvAcc.personId) ||
+              config.accounts[idx];
+
+            const locLabel = (loc?.label || '').trim();
+            const isLocGeneric = !locLabel || /^Account\s+\d+/i.test(locLabel);
+
+            return {
+              ...srvAcc,
+              label: !isLocGeneric ? locLabel : srvAcc.label || locLabel || `Account ${idx + 1}`,
+              personId: loc?.personId?.trim() || srvAcc.personId || '',
+              kaiaEmail: loc?.kaiaEmail?.trim() || srvAcc.kaiaEmail || '',
+              kaiaPassword: loc?.kaiaPassword || srvAcc.kaiaPassword || '',
+              manualToken: loc?.manualToken?.trim() || srvAcc.manualToken || '',
+              enabled: loc?.enabled ?? srvAcc.enabled ?? true,
+            };
+          });
+          const mergedConfig: AppConfig = { ...config, accounts: mergedAccounts };
+          setConfig(mergedConfig);
+          saveStoredConfig(mergedConfig);
+          await syncAccountsToServer(mergedAccounts);
+          return;
         }
       }
       await syncAccountsToServer(config.accounts);
@@ -285,11 +303,17 @@ export default function App() {
             onOpenSettings={() => setActiveTab('settings')}
             onOpenLateAbsent={() => setActiveTab('late-absent')}
             onOpenBatches={() => setActiveTab('batches')}
+            onOpenPortalStudio={() => setActiveTab('portal')}
           />
         )}
 
+        {activeTab === 'portal' && <KaiaPortalTab config={config} />}
+
         {activeTab === 'batches' && (
-          <BatchesTab config={config} />
+          <BatchesTab
+            config={config}
+            onOpenPortalStudio={() => setActiveTab('portal')}
+          />
         )}
 
         {activeTab === 'late-absent' && (
@@ -318,7 +342,10 @@ export default function App() {
             config={config}
             cronStatus={cronStatus}
             onToggleScheduler={handleToggleScheduler}
-            onRefreshCronStatus={fetchCronStatus}
+            onRefreshCronStatus={() => {
+              fetchCronStatus();
+              fetchLogs();
+            }}
           />
         )}
 
