@@ -2,6 +2,8 @@ export type TabId =
   | 'dashboard'
   | 'portal'
   | 'batches'
+  | 'approved-creatives'
+  | 'passwords'
   | 'late-absent'
   | 'manual'
   | 'history'
@@ -77,11 +79,31 @@ export function Navbar({
             Batches &amp; Ratings
           </button>
           <button
+            onClick={() => onSelectTab('approved-creatives')}
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
+              activeTab === 'approved-creatives'
+                ? 'text-white border-b-2 border-teal-400 font-semibold'
+                : 'text-teal-300 hover:text-teal-200 font-semibold'
+            }`}
+          >
+            Approved Creatives
+          </button>
+          <button
+            onClick={() => onSelectTab('passwords')}
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
+              activeTab === 'passwords'
+                ? 'text-white border-b-2 border-amber-400 font-semibold'
+                : 'text-amber-300 hover:text-amber-200 font-semibold'
+            }`}
+          >
+            Emails &amp; Passwords
+          </button>
+          <button
             onClick={() => onSelectTab('late-absent')}
             className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
               activeTab === 'late-absent'
                 ? 'text-white border-b-2 border-indigo-500 font-semibold'
-                : 'text-amber-300 hover:text-amber-200'
+                : 'text-slate-300 hover:text-white'
             }`}
           >
             Late &amp; Absent
@@ -185,8 +207,20 @@ export function Navbar({
           Batches &amp; Ratings
         </button>
         <button
+          onClick={() => onSelectTab('approved-creatives')}
+          className={`whitespace-nowrap ${activeTab === 'approved-creatives' ? 'text-teal-400 font-semibold' : 'text-teal-300 font-semibold'}`}
+        >
+          Approved Creatives
+        </button>
+        <button
+          onClick={() => onSelectTab('passwords')}
+          className={`whitespace-nowrap ${activeTab === 'passwords' ? 'text-amber-400 font-semibold' : 'text-amber-300 font-semibold'}`}
+        >
+          Emails &amp; Passwords
+        </button>
+        <button
           onClick={() => onSelectTab('late-absent')}
-          className={`whitespace-nowrap ${activeTab === 'late-absent' ? 'text-indigo-400 font-semibold' : 'text-amber-300'}`}
+          className={`whitespace-nowrap ${activeTab === 'late-absent' ? 'text-indigo-400 font-semibold' : 'text-slate-300'}`}
         >
           Late &amp; Absent
         </button>

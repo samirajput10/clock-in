@@ -14,6 +14,7 @@ import { ManualDispatchTab } from './components/ManualDispatchTab.tsx';
 import { AttendanceTableTab } from './components/AttendanceTableTab.tsx';
 import { CronAutomatorTab } from './components/CronAutomatorTab.tsx';
 import { SettingsTab } from './components/SettingsTab.tsx';
+import { PasswordsVaultTab } from './components/PasswordsVaultTab.tsx';
 import { UpdatesTab } from './components/UpdatesTab.tsx';
 import { LogModal } from './components/LogModal.tsx';
 import { AppConfig, CronStatus, ExecutionLog } from './types/index.ts';
@@ -60,12 +61,12 @@ export default function App() {
 
             return {
               ...srvAcc,
-              label: !isLocGeneric ? locLabel : srvAcc.label || locLabel || `Account ${idx + 1}`,
-              personId: loc?.personId?.trim() || srvAcc.personId || '',
-              kaiaEmail: loc?.kaiaEmail?.trim() || srvAcc.kaiaEmail || '',
-              kaiaPassword: loc?.kaiaPassword || srvAcc.kaiaPassword || '',
-              manualToken: loc?.manualToken?.trim() || srvAcc.manualToken || '',
-              enabled: loc?.enabled ?? srvAcc.enabled ?? true,
+              label: srvAcc.label || (!isLocGeneric ? locLabel : `Account ${idx + 1}`),
+              personId: srvAcc.personId?.trim() || loc?.personId?.trim() || '',
+              kaiaEmail: srvAcc.kaiaEmail?.trim() || loc?.kaiaEmail?.trim() || '',
+              kaiaPassword: srvAcc.kaiaPassword || loc?.kaiaPassword || '',
+              manualToken: srvAcc.manualToken?.trim() || loc?.manualToken?.trim() || '',
+              enabled: srvAcc.enabled ?? loc?.enabled ?? true,
             };
           });
           const mergedConfig: AppConfig = { ...config, accounts: mergedAccounts };
@@ -311,8 +312,26 @@ export default function App() {
 
         {activeTab === 'batches' && (
           <BatchesTab
+            key="batches-main"
             config={config}
+            initialSubTab="batches"
             onOpenPortalStudio={() => setActiveTab('portal')}
+          />
+        )}
+
+        {activeTab === 'approved-creatives' && (
+          <BatchesTab
+            key="approved-creatives-main"
+            config={config}
+            initialSubTab="approved_creatives"
+            onOpenPortalStudio={() => setActiveTab('portal')}
+          />
+        )}
+
+        {activeTab === 'passwords' && (
+          <PasswordsVaultTab
+            config={config}
+            onSaveConfig={handleSaveConfig}
           />
         )}
 

