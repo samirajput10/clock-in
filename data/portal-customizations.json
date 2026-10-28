@@ -2,17 +2,7 @@
   "overrides": {
     "people": {
       "3a38a9c0-f965-4fde-8c10-84a07dff2901": {
-        "id": "3a38a9c0-f965-4fde-8c10-84a07dff2901",
-        "name": "samiullah",
-        "email": "halmarrsami@gmail.com",
         "role": "admin",
-        "pay_model": "level",
-        "base_rate": 466.12,
-        "current_level": 6,
-        "current_score": 65,
-        "status": "ok",
-        "active": true,
-        "created_at": "2026-08-03T07:42:25.428813+00:00",
         "roles": [
           "admin",
           "manager",
@@ -27,29 +17,8 @@
           "lander_builder",
           "media_buyer"
         ],
-        "auth_user_id": "3ab78e5e-e11f-43cd-8e27-216134c8f338",
-        "city": "lahore",
-        "shift": "day",
-        "late_after_min": null,
-        "late_rule_from": null,
-        "primary_client_id": "daf0a8bb-c8d5-465b-83ef-ff5d8266b817",
-        "secondary_client_id": "5d68ce46-5402-43fe-86b4-d66628c1247a",
-        "is_intern": false,
-        "intern_stipend_pkr": null,
-        "intern_started_on": null,
-        "promoted_on": null,
-        "secondary_client_ids": [],
-        "discord_user_id": null,
-        "fixed_salary_pkr": null,
         "allow_remote": true,
-        "flagged_for_layoff": false,
-        "monthly_pay_usd": 466.12,
         "updated_at": "2026-10-20T10:25:50.464Z"
-      },
-      "48e11b99-cc75-43da-8019-9de40957601d": {
-        "name": "Account 3",
-        "email": "abbashaider4968@gmail.com",
-        "updated_at": "2026-10-23T23:01:09.035Z"
       }
     },
     "strikes": {

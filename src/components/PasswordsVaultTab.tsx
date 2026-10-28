@@ -37,6 +37,13 @@ export interface VaultCredentialItem {
   clockInSynced?: boolean;
   notes?: string;
   source?: 'vault' | 'database_person' | 'database_tool';
+  currentLevel?: number;
+  currentScore?: number;
+  monthlyPayUsd?: number;
+  monthlyPayPkr?: number;
+  payModel?: string;
+  approvedBatchesCount?: number;
+  activeBatchesCount?: number;
   updatedAt: string;
 }
 
@@ -1174,9 +1181,31 @@ export function PasswordsVaultTab({ config, onSaveConfig }: PasswordsVaultTabPro
                     </div>
                   </div>
 
-                  {/* Secondary Info Bar: Role/Notes, Auto Clock-In toggle & Login Test Status */}
+                  {/* Secondary Info Bar: Role/Notes, Salary & Level Stats, Auto Clock-In toggle & Login Test Status */}
                   <div className="mt-2.5 pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2 text-[11px]">
                     <div className="flex flex-wrap items-center gap-3 flex-1">
+                      {draft.category === 'kaia_account' && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {draft.role && (
+                            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-mono">
+                              {draft.role}{draft.city ? ` · ${draft.city}` : ''}
+                            </span>
+                          )}
+                          {draft.currentLevel !== undefined && (
+                            <span className="px-2 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-mono font-bold">
+                              L{draft.currentLevel}{draft.currentScore !== undefined ? ` · ${draft.currentScore} pts` : ''}
+                            </span>
+                          )}
+                          {(draft.monthlyPayPkr !== undefined || draft.monthlyPayUsd !== undefined) && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold">
+                              {draft.monthlyPayPkr !== undefined ? `₨${draft.monthlyPayPkr.toLocaleString()}` : ''}
+                              {draft.monthlyPayPkr !== undefined && draft.monthlyPayUsd !== undefined ? ' / ' : ''}
+                              {draft.monthlyPayUsd !== undefined ? `$${draft.monthlyPayUsd.toFixed(2)}` : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-1.5 text-slate-400">
                         <span>Details:</span>
                         <input
@@ -1184,7 +1213,7 @@ export function PasswordsVaultTab({ config, onSaveConfig }: PasswordsVaultTabPro
                           value={draft.notes || ''}
                           onChange={(e) => updateRowDraft(item.id, { notes: e.target.value })}
                           placeholder="Role / Notes..."
-                          className="bg-transparent border-b border-slate-800 focus:border-indigo-500 text-slate-300 px-1 py-0.5 text-[11px] focus:outline-none w-60"
+                          className="bg-transparent border-b border-slate-800 focus:border-indigo-500 text-slate-300 px-1 py-0.5 text-[11px] focus:outline-none w-52"
                         />
                       </div>
 

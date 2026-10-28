@@ -81,9 +81,7 @@ export function BatchesTab({
   const [activeSubTab, setActiveSubTab] = useState<'batches' | 'approved_creatives' | 'leaderboard'>(
     initialSubTab
   );
-  const [scope, setScope] = useState<'assigned' | 'all'>(
-    initialSubTab === 'batches' ? 'assigned' : 'all'
-  );
+  const [scope, setScope] = useState<'assigned' | 'all'>('all');
   const [batches, setBatches] = useState<KaiaBatch[]>([]);
   const [allPeople, setAllPeople] = useState<KaiaPersonProfile[]>([]);
   const [clients, setClients] = useState<KaiaClient[]>([]);
@@ -151,7 +149,7 @@ export function BatchesTab({
     setLoading(true);
     setError(null);
     try {
-      // Always fetch scope='all' so Leaderboard and Approved Creatives always have all 500+ portal/leaderboard batches
+      // Always fetch scope='all' with limit='2500' so all 2,030 real studio batches are loaded
       const params = new URLSearchParams({
         supabaseUrl: config.supabaseUrl,
         supabaseAnonKey: config.supabaseAnonKey,
@@ -160,7 +158,7 @@ export function BatchesTab({
         email: selectedAccount.kaiaEmail || '',
         password: selectedAccount.kaiaPassword || '',
         scope: 'all',
-        limit: '500',
+        limit: '2500',
       });
 
       const headers: Record<string, string> = {};
@@ -761,6 +759,9 @@ export function BatchesTab({
       }
       if (bulkStatus) {
         payload.status = bulkStatus;
+        if (['approved', 'client_approved', 'winner', 'super_winner', 'testing', 'edits_from_client'].includes(bulkStatus)) {
+          payload.setApprovedAt = true;
+        }
       }
       if (bulkOutcome) {
         payload.outcome = bulkOutcome;
@@ -940,7 +941,11 @@ export function BatchesTab({
       ad_name_in_platform: editForm.ad_name_in_platform || null,
       instructions: editForm.instructions || null,
       due_at: editForm.due_at || null,
-      approved_at: editForm.approved_at || null,
+      approved_at:
+        editForm.approved_at ||
+        (['approved', 'client_approved', 'winner', 'super_winner', 'testing', 'edits_from_client'].includes(editForm.status)
+          ? editingBatch.approved_at || new Date().toISOString()
+          : null),
     };
 
     const diffed: Record<string, any> = {};
@@ -951,6 +956,13 @@ export function BatchesTab({
       if (normOrig !== normVal) {
         diffed[k] = v;
       }
+    }
+    if (
+      ['approved', 'client_approved', 'winner', 'super_winner', 'testing', 'edits_from_client'].includes(editForm.status) &&
+      !editingBatch.approved_at
+    ) {
+      diffed.setApprovedAt = true;
+      diffed.approved_at = candidate.approved_at;
     }
 
     await handleQuickUpdateBatch(
@@ -995,6 +1007,14 @@ export function BatchesTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <a
+              href="/portal-live"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition cursor-pointer"
+            >
+              🌐 Open Live Portal (/portal-live)
+            </a>
             {/* Scope Toggle: Assigned vs All Portal Batches */}
             <div className="flex items-center gap-1 p-1 bg-slate-950 border border-slate-800 rounded-xl">
               <button
@@ -2371,16 +2391,31 @@ export function BatchesTab({
                               <select
                                 value={batch.status}
                                 disabled={isRowUpdating}
-                                onChange={(e) =>
+                                onChange={(e) => {
+                                  const nextStatus = e.target.value;
+                                  const isApproving = [
+                                    'approved',
+                                    'client_approved',
+                                    'winner',
+                                    'super_winner',
+                                    'testing',
+                                    'edits_from_client',
+                                  ].includes(nextStatus);
                                   handleQuickUpdateBatch(batch, {
-                                    status: e.target.value,
+                                    status: nextStatus,
                                     creator_id:
                                       batch.creator_id ||
                                       batch.editor_id ||
                                       resolvedPersonId ||
                                       selectedAccount?.personId,
-                                  })
-                                }
+                                    ...(isApproving
+                                      ? {
+                                          setApprovedAt: true,
+                                          quality: batch.quality && batch.quality > 0 ? batch.quality : 5,
+                                        }
+                                      : {}),
+                                  });
+                                }}
                                 className={`bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs font-semibold ${statusInfo.color} focus:outline-none cursor-pointer`}
                               >
                                 {STATUS_OPTIONS.map((st) => (

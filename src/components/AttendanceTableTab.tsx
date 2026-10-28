@@ -9,11 +9,9 @@ interface AttendanceTableTabProps {
 }
 
 export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTableTabProps) {
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(
-    config.accounts[0]?.id || 'acc-1'
-  );
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [records, setRecords] = useState<SupabaseAttendanceRecord[]>([]);
-  const [resolvedPersonName, setResolvedPersonName] = useState<string>('');
+  const [resolvedPersonName, setResolvedPersonName] = useState<string>('All Studio Staff (Admin View)');
   const [loading, setLoading] = useState(false);
   const [updatingDate, setUpdatingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,23 +19,25 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<SupabaseAttendanceRecord | null>(null);
 
+  const isAllStudioScope = selectedAccountId === 'all';
   const activeAccount =
     config.accounts.find((a) => a.id === selectedAccountId) || config.accounts[0];
 
   const fetchRecords = async () => {
-    if (!activeAccount) return;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({
-        personId: activeAccount.personId || '',
-        email: activeAccount.kaiaEmail || '',
-        password: activeAccount.kaiaPassword || '',
+        scope: isAllStudioScope ? 'all' : 'person',
+        accountId: isAllStudioScope ? 'all' : activeAccount?.id || '',
+        personId: isAllStudioScope ? '' : activeAccount?.personId || '',
+        email: isAllStudioScope ? '' : activeAccount?.kaiaEmail || '',
+        password: activeAccount?.kaiaPassword || '',
         supabaseUrl: config.supabaseUrl,
         supabaseAnonKey: config.supabaseAnonKey,
-        limit: '120',
+        limit: isAllStudioScope ? '1500' : '250',
       });
-      if (activeAccount.manualToken) {
+      if (activeAccount?.manualToken) {
         params.set('accessToken', activeAccount.manualToken);
       }
 
@@ -46,7 +46,11 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      setResolvedPersonName(data.personName || activeAccount.label || '');
+      setResolvedPersonName(
+        isAllStudioScope
+          ? 'All Studio Staff (Admin View)'
+          : data.personName || activeAccount?.label || ''
+      );
       setRecords(data.records || []);
     } catch (err: any) {
       setError(err.message || 'Failed to query attendance history from Supabase');
@@ -59,13 +63,20 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
     fetchRecords();
   }, [selectedAccountId, activeAccount?.personId, activeAccount?.kaiaEmail]);
 
-  const handleQuickRowUpdate = async (workDate: string, markLate: boolean) => {
-    if (!activeAccount) return;
-    setUpdatingDate(workDate);
+  const handleQuickRowUpdate = async (record: SupabaseAttendanceRecord, markLate: boolean) => {
+    const workDate = record.work_date;
+    const rowUpdateKey = `${record.person_id || 'p'}:${workDate}`;
+    setUpdatingDate(rowUpdateKey);
     setNotice(null);
     try {
       const pktTime = markLate ? '08:35:10' : '08:00:08';
       const clockInIsoUTC = pktToUtcIso(workDate, pktTime);
+      const targetAccount =
+        config.accounts.find((a) => a.personId && a.personId === record.person_id) ||
+        activeAccount;
+      if (!targetAccount) {
+        throw new Error('No configured account available for attendance update');
+      }
       const res = await fetch('/api/attendance/batch-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,10 +85,16 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
           supabaseAnonKey: config.supabaseAnonKey,
           addJitter: true,
           simulate: false,
-          lat: activeAccount.lat ?? config.lat,
-          lng: activeAccount.lng ?? config.lng,
-          distanceM: activeAccount.distanceM ?? config.distanceM,
-          accounts: [activeAccount],
+          lat: targetAccount.lat ?? config.lat,
+          lng: targetAccount.lng ?? config.lng,
+          distanceM: targetAccount.distanceM ?? config.distanceM,
+          accounts: [
+            {
+              ...targetAccount,
+              personId: record.person_id || targetAccount.personId,
+              label: record.person_name || targetAccount.label,
+            },
+          ],
           entries: [
             {
               workDate,
@@ -93,7 +110,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
       }
       setNotice({
         type: 'success',
-        text: `Updated ${workDate} to ${markLate ? 'Late (08:35 PKT)' : 'On-Time (08:00 PKT)'} for ${resolvedPersonName || activeAccount.label}!`,
+        text: `Updated ${workDate} to ${markLate ? 'Late (08:35 PKT)' : 'On-Time (08:00 PKT)'} for ${record.person_name || resolvedPersonName || targetAccount.label}!`,
       });
       await fetchRecords();
     } catch (err: any) {
@@ -111,7 +128,8 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
     const q = searchQuery.toLowerCase();
     return (
       r.work_date?.toLowerCase().includes(q) ||
-      r.clock_in_at?.toLowerCase().includes(q)
+      r.clock_in_at?.toLowerCase().includes(q) ||
+      r.person_name?.toLowerCase().includes(q)
     );
   });
 
@@ -126,8 +144,8 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
           <h2 className="text-xl font-bold text-white">Live Supabase Attendance Table</h2>
           <p className="text-xs text-slate-400 mt-1">
             Directly queried records from table <code className="text-indigo-400">attendance</code> for{' '}
-            <span className="text-white font-semibold">{resolvedPersonName || activeAccount?.label}</span>
-            {activeAccount?.kaiaEmail ? (
+            <span className="text-white font-semibold">{resolvedPersonName}</span>
+            {!isAllStudioScope && activeAccount?.kaiaEmail ? (
               <span className="text-slate-400"> ({activeAccount.kaiaEmail})</span>
             ) : null}
           </p>
@@ -163,7 +181,17 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
 
       {/* Account Switcher Segmented Control */}
       <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl">
-        <span className="text-xs font-medium text-slate-400 px-2">Inspect Account:</span>
+        <span className="text-xs font-medium text-slate-400 px-2">View Scope:</span>
+        <button
+          onClick={() => setSelectedAccountId('all')}
+          className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+            selectedAccountId === 'all'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          All Studio Staff (Admin View)
+        </button>
         {config.accounts.map((acc, idx) => (
           <button
             key={acc.id}
@@ -235,7 +263,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
         <div className="relative flex-1 max-w-sm">
           <input
             type="text"
-            placeholder="Search by date (e.g. 2026-10)..."
+            placeholder="Search by staff name or date (e.g. 2026-10)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
@@ -252,7 +280,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
           <div className="font-semibold">Supabase Query Notice:</div>
           <p className="font-mono">{error}</p>
           <p className="text-slate-400 text-[11px] mt-2">
-            Tip: Ensure KAIA login credentials or a manual JWT token are configured for {activeAccount?.label} in the Config tab.
+            Tip: Ensure KAIA login credentials or a manual JWT token are configured in the Config tab.
           </p>
         </div>
       )}
@@ -273,7 +301,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
             <p className="text-xs mt-1">
               {searchQuery
                 ? 'No records matched your search query.'
-                : `No attendance records found for ${activeAccount?.label} yet.`}
+                : `No attendance records found for ${resolvedPersonName} yet.`}
             </p>
           </div>
         ) : (
@@ -281,6 +309,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-950/60 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
+                  <th className="py-3 px-4">Staff Member</th>
                   <th className="py-3 px-4">Work Date</th>
                   <th className="py-3 px-4">Clock-In (PKT Time)</th>
                   <th className="py-3 px-4">Distance</th>
@@ -290,10 +319,14 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {filteredRecords.map((record) => {
-                  const isUpdating = updatingDate === record.work_date;
+                {filteredRecords.map((record, idx) => {
+                  const rowKey = `${record.person_id || idx}:${record.work_date}`;
+                  const isUpdating = updatingDate === `${record.person_id || 'p'}:${record.work_date}`;
                   return (
-                    <tr key={record.work_date} className="hover:bg-slate-800/30 transition-colors">
+                    <tr key={rowKey} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 font-sans font-semibold text-indigo-300">
+                        {record.person_name || resolvedPersonName || 'Staff'}
+                      </td>
                       <td className="py-3.5 px-4 font-semibold text-white">
                         {record.work_date}
                       </td>
@@ -301,7 +334,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
                         {formatToPKT(record.clock_in_at)}
                       </td>
                       <td className="py-3.5 px-4 text-slate-300 tabular-nums">
-                        {record.clock_in_distance_m} m
+                        {record.clock_in_distance_m ?? 0} m
                       </td>
                       <td className="py-3.5 px-4 text-slate-400 tabular-nums">
                         {Number(record.clock_in_lat || 0).toFixed(4)}, {Number(record.clock_in_lng || 0).toFixed(4)}
@@ -318,7 +351,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
                           {record.late ? (
                             <button
                               disabled={isUpdating}
-                              onClick={() => handleQuickRowUpdate(record.work_date, false)}
+                              onClick={() => handleQuickRowUpdate(record, false)}
                               className="px-2.5 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors cursor-pointer disabled:opacity-50"
                             >
                               {isUpdating ? 'Updating...' : 'Fix to On-Time'}
@@ -326,7 +359,7 @@ export function AttendanceTableTab({ config, onOpenLateAbsent }: AttendanceTable
                           ) : (
                             <button
                               disabled={isUpdating}
-                              onClick={() => handleQuickRowUpdate(record.work_date, true)}
+                              onClick={() => handleQuickRowUpdate(record, true)}
                               className="px-2.5 py-1 text-[11px] font-medium bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-500/30 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                             >
                               {isUpdating ? 'Updating...' : 'Update as Late'}
